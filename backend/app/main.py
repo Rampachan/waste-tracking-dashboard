@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional, List, Dict
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, extract
 
 from .database import engine, Base, get_db, SessionLocal
@@ -459,7 +459,7 @@ def batch_swm_facilities(
     return results
 
 def build_daily_log_response(log: DailyWasteLog, ulb: ULB, db: Session) -> DailyLogResponse:
-    f_logs = db.query(DailyFacilityLog).filter(
+    f_logs = db.query(DailyFacilityLog).options(joinedload(DailyFacilityLog.facility)).filter(
         DailyFacilityLog.ulb_id == log.ulb_id,
         DailyFacilityLog.log_date == log.log_date
     ).all()
@@ -1211,7 +1211,7 @@ def list_uwm_baselines(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(UwmBaseline).join(ULB, UwmBaseline.ulb_id == ULB.id)
+    query = db.query(UwmBaseline).options(joinedload(UwmBaseline.ulb)).join(ULB, UwmBaseline.ulb_id == ULB.id)
     if region and region != "ALL":
         query = query.filter(ULB.region == region)
     if search:
@@ -1448,7 +1448,7 @@ def get_daily_uwm_logs(
     if not target_date:
         target_date = date.today()
 
-    query = db.query(UwmBaseline).join(ULB, UwmBaseline.ulb_id == ULB.id)
+    query = db.query(UwmBaseline).options(joinedload(UwmBaseline.ulb)).join(ULB, UwmBaseline.ulb_id == ULB.id)
     if region and region != "ALL":
         query = query.filter(ULB.region == region)
 
@@ -1678,7 +1678,7 @@ def export_daily_uwm_excel(
     if not target_date:
         target_date = date.today()
 
-    baselines = db.query(UwmBaseline).join(ULB, UwmBaseline.ulb_id == ULB.id).order_by(UwmBaseline.pdf_s_no).all()
+    baselines = db.query(UwmBaseline).options(joinedload(UwmBaseline.ulb)).join(ULB, UwmBaseline.ulb_id == ULB.id).order_by(UwmBaseline.pdf_s_no).all()
     logs = db.query(DailyUwmLog).filter(DailyUwmLog.log_date == target_date).all()
     log_map = {l.ulb_id: l for l in logs}
 

@@ -12,7 +12,7 @@ class TokenResponse(BaseModel):
     ulb_name: Optional[str] = None
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=50, description="Username or ULB code")
+    username: str = Field(min_length=1, max_length=50, description="Username or ULB code")
     password: str = Field(min_length=4, max_length=128, description="User password")
 
 class UserResponse(BaseModel):
