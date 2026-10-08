@@ -53,19 +53,12 @@ async def add_security_headers(request: Request, call_next):
 
 # ----------------- HARDENED CORS CONFIGURATION -----------------
 
-ALLOWED_ORIGINS = [
-    origin.strip() for origin in os.getenv(
-        "ALLOWED_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://[::1]:5173,http://localhost:3000,http://127.0.0.1:3000,http://[::1]:3000,http://localhost:8000,http://127.0.0.1:8000,http://[::1]:8000"
-    ).split(",") if origin.strip()
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ----------------- IN-MEMORY BRUTE FORCE DEFENSE -----------------
