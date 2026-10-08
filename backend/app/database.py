@@ -2,12 +2,19 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# 100% Free SQLite local database by default
-# When migrating to cloud, change DATABASE_URL in .env to postgresql://user:pass@host/dbname
-_DEFAULT_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "waste_management.db"))
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{_DEFAULT_DB_PATH}")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+_raw_url = os.getenv("DATABASE_URL", "").strip()
+
+# Strip any surrounding quotes if user entered "postgresql://..."
+if (_raw_url.startswith('"') and _raw_url.endswith('"')) or (_raw_url.startswith("'") and _raw_url.endswith("'")):
+    _raw_url = _raw_url[1:-1].strip()
+
+if not _raw_url:
+    _DEFAULT_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "waste_management.db"))
+    DATABASE_URL = f"sqlite:///{_DEFAULT_DB_PATH}"
+else:
+    if _raw_url.startswith("postgres://"):
+        _raw_url = _raw_url.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = _raw_url
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
