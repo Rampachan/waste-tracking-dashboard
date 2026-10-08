@@ -136,51 +136,70 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         except Exception as e:
             print(f"Seed error: {e}")
 
-    user = db.query(User).filter(User.username == clean_user).first()
+    try:
+        user = db.query(User).filter(User.username == clean_user).first()
+    except Exception:
+        db.rollback()
+        user = db.query(User).filter(User.username == clean_user).first()
 
     # Dynamic Zero-Failure Account Auto-Provisioning for Cloud Databases
     if not user:
         try:
             Base.metadata.create_all(bind=engine)
             if clean_user == "director":
-                user = User(username="director", password_hash=hash_password("director@123"), role="DIRECTOR", full_name="Director of Municipal Administration")
-                db.add(user)
-                db.commit()
-                db.refresh(user)
+                existing = db.query(User).filter(User.username == "director").first()
+                if not existing:
+                    user = User(username="director", password_hash=hash_password("director@123"), role="DIRECTOR", full_name="Director of Municipal Administration")
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+                else:
+                    user = existing
             elif clean_user == "hq":
-                user = User(username="hq", password_hash=hash_password("hq@123"), role="HQ_USER", full_name="HQ State Command Centre Officer")
-                db.add(user)
-                db.commit()
-                db.refresh(user)
+                existing = db.query(User).filter(User.username == "hq").first()
+                if not existing:
+                    user = User(username="hq", password_hash=hash_password("hq@123"), role="HQ_USER", full_name="HQ State Command Centre Officer")
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+                else:
+                    user = existing
             elif clean_user == "admin":
-                user = User(username="admin", password_hash=hash_password("admin@123"), role="ADMIN", full_name="System Administrator")
-                db.add(user)
-                db.commit()
-                db.refresh(user)
+                existing = db.query(User).filter(User.username == "admin").first()
+                if not existing:
+                    user = User(username="admin", password_hash=hash_password("admin@123"), role="ADMIN", full_name="System Administrator")
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+                else:
+                    user = existing
             elif clean_user.startswith("ulb_"):
-                ulb_search_name = clean_user[4:].replace("_", " ")
-                target_ulb = db.query(ULB).filter(func.lower(ULB.name).like(f"%{ulb_search_name}%")).first()
-                if not target_ulb:
-                    target_ulb = db.query(ULB).first()
-                
-                ulb_id_val = target_ulb.id if target_ulb else 1
-                ulb_name_val = target_ulb.name if target_ulb else "Municipal Corporation"
-                
-                user = User(
-                    username=clean_user,
-                    password_hash=hash_password("ulb@123"),
-                    role="ULB_USER",
-                    full_name=f"{ulb_name_val} Municipal In-charge",
-                    ulb_id=ulb_id_val
-                )
-                db.add(user)
-                db.commit()
-                db.refresh(user)
+                existing = db.query(User).filter(User.username == clean_user).first()
+                if not existing:
+                    ulb_search_name = clean_user[4:].replace("_", " ")
+                    target_ulb = db.query(ULB).filter(func.lower(ULB.name).like(f"%{ulb_search_name}%")).first()
+                    if not target_ulb:
+                        target_ulb = db.query(ULB).first()
+                    
+                    ulb_id_val = target_ulb.id if target_ulb else 1
+                    ulb_name_val = target_ulb.name if target_ulb else "Municipal Corporation"
+                    
+                    user = User(
+                        username=clean_user,
+                        password_hash=hash_password("ulb@123"),
+                        role="ULB_USER",
+                        full_name=f"{ulb_name_val} Municipal In-charge",
+                        ulb_id=ulb_id_val
+                    )
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+                else:
+                    user = existing
         except Exception as prov_err:
             db.rollback()
             print(f"Account auto-provision warning: {prov_err}")
             try:
-                seed_database(db)
                 user = db.query(User).filter(User.username == clean_user).first()
             except Exception:
                 pass
