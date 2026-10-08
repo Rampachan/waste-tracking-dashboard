@@ -159,10 +159,10 @@ def seed_database(db: Session):
                 ).first()
 
                 if not existing_log:
-                    # Realistic variations
                     cov_rate = random.uniform(0.85, 0.99)
-                    d2d_hhs = int(ulb.households * cov_rate)
-                    pct = round((d2d_hhs / ulb.households) * 100, 2)
+                    hh_count = ulb.households if ulb.households and ulb.households > 0 else 1
+                    d2d_hhs = int(hh_count * cov_rate)
+                    pct = round((d2d_hhs / hh_count) * 100, 2)
 
                     # Capacities & Actuals
                     mcc_act = round(ulb.default_mcc_capacity * random.uniform(0.75, 0.98), 2)
