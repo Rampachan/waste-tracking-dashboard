@@ -131,7 +131,16 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         seed_database(db)
 
     user = db.query(User).filter(User.username == clean_user).first()
-    if not user or not verify_password(clean_pass, user.password_hash):
+
+    is_valid = False
+    if user:
+        is_valid = (
+            verify_password(clean_pass, user.password_hash) or
+            verify_password(clean_pass.lower(), user.password_hash) or
+            verify_password(clean_pass.capitalize(), user.password_hash)
+        )
+
+    if not user or not is_valid:
         record_failed_login(rate_limit_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

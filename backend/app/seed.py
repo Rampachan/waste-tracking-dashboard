@@ -43,29 +43,39 @@ def seed_database(db: Session):
     admin_password_hash = hash_password("admin@123")
     ulb_password_hash = hash_password("ulb@123")
 
-    if not db.query(User).filter(User.username == "director").first():
+    dir_user = db.query(User).filter(User.username == "director").first()
+    if not dir_user:
         db.add(User(
             username="director",
             password_hash=default_password_hash,
             role="DIRECTOR",
             full_name="Director of Municipal Administration"
         ))
+    else:
+        dir_user.password_hash = default_password_hash
 
-    if not db.query(User).filter(User.username == "hq").first():
+    hq_user = db.query(User).filter(User.username == "hq").first()
+    if not hq_user:
         db.add(User(
             username="hq",
             password_hash=hq_password_hash,
             role="HQ_USER",
             full_name="HQ State Command Centre Officer"
         ))
+    else:
+        hq_user.password_hash = hq_password_hash
 
-    if not db.query(User).filter(User.username == "admin").first():
+    admin_user = db.query(User).filter(User.username == "admin").first()
+    if not admin_user:
         db.add(User(
             username="admin",
             password_hash=admin_password_hash,
             role="ADMIN",
             full_name="System Administrator"
         ))
+    else:
+        admin_user.password_hash = admin_password_hash
+
     db.commit()
 
     # 3. Seed ULB Operator Accounts for each ULB
