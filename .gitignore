@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache & logs
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+backend/app/__pycache__/
+
+# Build outputs
+frontend/dist/
+dist/
+build/
+
+# Local databases & env files
+*.db
+*.sqlite3
+backend/waste_management.db
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE & System files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel/
