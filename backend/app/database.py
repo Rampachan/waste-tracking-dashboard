@@ -10,8 +10,11 @@ _raw_url = os.getenv("DATABASE_URL", "").strip()
 if (_raw_url.startswith('"') and _raw_url.endswith('"')) or (_raw_url.startswith("'") and _raw_url.endswith("'")):
     _raw_url = _raw_url[1:-1].strip()
 
+# Force postgresql+psycopg2:// dialect so SQLAlchemy 2.0 uses psycopg2-binary
 if _raw_url.startswith("postgres://"):
-    _raw_url = _raw_url.replace("postgres://", "postgresql://", 1)
+    _raw_url = _raw_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif _raw_url.startswith("postgresql://"):
+    _raw_url = _raw_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 # Validate URL parsing with SQLAlchemy make_url to prevent crash on invalid connection string
 DATABASE_URL = None
