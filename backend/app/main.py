@@ -111,12 +111,24 @@ def startup_event():
 @app.post("/api/auth/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
     client_ip = request.client.host if request.client else "127.0.0.1"
-    rate_limit_key = f"{client_ip}:{payload.username.strip().lower()}"
+    clean_user = payload.username.strip().lower()
+    clean_pass = payload.password.strip()
+    rate_limit_key = f"{client_ip}:{clean_user}"
 
     check_login_rate_limit(rate_limit_key)
 
-    user = db.query(User).filter(User.username == payload.username.strip().lower()).first()
-    if not user or not verify_password(payload.password, user.password_hash):
+    # Self-healing database check: if no users exist in DB, auto-create tables and seed data
+    try:
+        user_count = db.query(User).count()
+        if user_count == 0:
+            Base.metadata.create_all(bind=engine)
+            seed_database(db)
+    except Exception:
+        Base.metadata.create_all(bind=engine)
+        seed_database(db)
+
+    user = db.query(User).filter(User.username == clean_user).first()
+    if not user or not verify_password(clean_pass, user.password_hash):
         record_failed_login(rate_limit_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
