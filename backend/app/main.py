@@ -122,15 +122,6 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 
     check_login_rate_limit(rate_limit_key)
 
-    # Self-healing database check: if no director user exists in DB, auto-seed DB
-    dir_exists = db.query(User).filter(User.username == "director").first()
-    if not dir_exists:
-        try:
-            Base.metadata.create_all(bind=engine)
-            seed_database(db)
-        except Exception as e:
-            print(f"Seed error: {e}")
-
     try:
         user = db.query(User).filter(User.username == clean_user).first()
     except Exception:

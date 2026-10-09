@@ -33,7 +33,16 @@ export default function LoginPage({ onLoginSuccess }) {
       localStorage.setItem('active_module', selectedModule);
       onLoginSuccess(data, selectedModule);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid username or password');
+      const serverDetail = err.response?.data?.detail;
+      if (typeof serverDetail === 'string') {
+        setError(serverDetail);
+      } else if (Array.isArray(serverDetail)) {
+        setError(serverDetail.map(d => d.msg || JSON.stringify(d)).join(', '));
+      } else if (err.message) {
+        setError(err.message === 'Network Error' ? 'Network Error: Cannot connect to server. Please verify backend is running.' : err.message);
+      } else {
+        setError('Invalid username or password');
+      }
     } finally {
       setLoading(false);
     }
