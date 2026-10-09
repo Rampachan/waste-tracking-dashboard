@@ -67,7 +67,7 @@ app.add_middleware(
 # ----------------- IN-MEMORY BRUTE FORCE DEFENSE -----------------
 
 _failed_login_attempts: Dict[str, List[datetime]] = {}
-MAX_FAILED_ATTEMPTS = 5
+MAX_FAILED_ATTEMPTS = 50
 LOCKOUT_WINDOW_SECONDS = 60
 
 def check_login_rate_limit(client_identifier: str):
