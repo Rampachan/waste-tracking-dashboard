@@ -155,10 +155,10 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
                     db.refresh(user)
                 else:
                     user = existing
-            elif clean_user == "hq":
-                existing = db.query(User).filter(User.username == "hq").first()
+            elif clean_user in ["hq", "hq_officer", "hq_user"]:
+                existing = db.query(User).filter(User.username.in_(["hq", "hq_officer", "hq_user"])).first()
                 if not existing:
-                    user = User(username="hq", password_hash=hash_password("hq@123"), role="HQ_USER", full_name="HQ State Command Centre Officer")
+                    user = User(username=clean_user, password_hash=hash_password("hq@123"), role="HQ_USER", full_name="HQ State Command Centre Officer")
                     db.add(user)
                     db.commit()
                     db.refresh(user)

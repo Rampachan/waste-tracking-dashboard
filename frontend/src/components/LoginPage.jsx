@@ -234,7 +234,7 @@ export default function LoginPage({ onLoginSuccess }) {
 
               <button
                 type="button"
-                onClick={() => fillCredentials('hq', 'hq@123')}
+                onClick={() => fillCredentials('hq_officer', 'hq@123')}
                 className={`p-2 text-left rounded-lg border transition-colors ${
                   isSwm
                     ? 'border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50'
