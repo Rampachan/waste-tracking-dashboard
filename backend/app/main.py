@@ -30,6 +30,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
+@app.get("/")
+def root_welcome_endpoint():
+    return {
+        "system": "Tamil Nadu Municipal Waste Monitoring System API",
+        "status": "online",
+        "version": "1.0.0",
+        "documentation": "https://waste-tracking-dashboard.onrender.com/docs",
+        "total_ulbs": 170,
+        "modules": ["Solid Waste Management (SWM)", "Used Water Management (UWM)"]
+    }
+
 # ----------------- SECURITY HEADERS MIDDLEWARE -----------------
 
 @app.middleware("http")
