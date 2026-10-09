@@ -40,10 +40,7 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    response.headers["Content-Security-Policy"] = (
-        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; "
-        "connect-src * https: http: ws: wss:; "
-    )
+    response.headers["Content-Security-Policy"] = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * https: http: ws: wss:"
     return response
 
 # ----------------- HARDENED CORS CONFIGURATION -----------------
