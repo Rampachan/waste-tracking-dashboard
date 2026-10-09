@@ -11,6 +11,11 @@ export default function LoginPage({ onLoginSuccess }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  React.useEffect(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  }, []);
+
   const [sessionExpiredMsg, setSessionExpiredMsg] = useState(() => {
     const msg = sessionStorage.getItem('session_expired_reason');
     if (msg) {
