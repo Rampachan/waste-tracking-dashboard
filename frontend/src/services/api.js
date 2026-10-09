@@ -1,6 +1,19 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://waste-tracking-dashboard.onrender.com/api';
+let targetUrl = import.meta.env.VITE_API_BASE_URL || 'https://waste-tracking-dashboard.onrender.com/api';
+
+if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+  if (targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1')) {
+    targetUrl = 'https://waste-tracking-dashboard.onrender.com/api';
+  }
+}
+
+targetUrl = targetUrl.replace(/\/+$/, '');
+if (!targetUrl.endsWith('/api')) {
+  targetUrl += '/api';
+}
+
+const API_BASE = targetUrl;
 
 const api = axios.create({
   baseURL: API_BASE,
