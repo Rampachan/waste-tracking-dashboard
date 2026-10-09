@@ -93,15 +93,22 @@ def clear_failed_login(client_identifier: str):
     if client_identifier in _failed_login_attempts:
         del _failed_login_attempts[client_identifier]
 
-@app.on_event("startup")
-def startup_event():
+def _async_seed():
     try:
-        Base.metadata.create_all(bind=engine)
         db = SessionLocal()
         try:
             seed_database(db)
         finally:
             db.close()
+    except Exception as e:
+        print(f"Async seed warning: {e}")
+
+@app.on_event("startup")
+def startup_event():
+    try:
+        Base.metadata.create_all(bind=engine)
+        import threading
+        threading.Thread(target=_async_seed, daemon=True).start()
     except Exception as e:
         print(f"Startup initialization warning: {e}")
 
