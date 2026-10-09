@@ -27,7 +27,9 @@ export default function LoginPage({ onLoginSuccess }) {
     setSessionExpiredMsg(null);
 
     try {
-      const data = await authService.login(username, password);
+      const cleanUsername = username.trim();
+      const cleanPassword = password.trim();
+      const data = await authService.login(cleanUsername, cleanPassword);
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('user', JSON.stringify(data));
       localStorage.setItem('active_module', selectedModule);
