@@ -180,17 +180,37 @@ def seed_database(db: Session):
                     bio_act = round(ulb.default_biometh_capacity * random.uniform(0.65, 0.92), 2)
                     oth_act = round(ulb.default_other_capacity * random.uniform(0.60, 0.90), 2)
 
-                    # Total incoming processed
-                    total_proc = mcc_act + mrf_act + bio_act + oth_act
-                    # Dump yard is remaining fraction (e.g. 15-25% of total waste generated)
-                    dump_yard = round(total_proc * random.uniform(0.12, 0.28), 2)
+                    wet_proc = round(mcc_act + bio_act, 2)
+                    recyc_sold = round(mrf_act * 0.25, 2)
+                    recyc_sent = round(mrf_act * 0.45, 2)
+                    dry_cement = round(mrf_act * 0.30 + oth_act, 2)
+                    tot_dry_proc = round(recyc_sold + recyc_sent + dry_cement, 2)
+
+                    san_cap = 1.0
+                    san_incin = 0.4
+                    spec_proc = 0.2
+
+                    tot_proc = round(wet_proc + san_incin + spec_proc + tot_dry_proc, 2)
+                    tot_gen = round(tot_proc * random.uniform(1.10, 1.25), 2)
+                    wet_gen = round(tot_gen * 0.55, 2)
+                    dry_gen = round(tot_gen - wet_gen, 2)
+                    dump_yard = round(tot_gen - tot_proc, 2)
+                    proc_pct = round((tot_proc / tot_gen) * 100, 2) if tot_gen > 0 else 0.0
+
+                    compost = round(wet_proc * 0.15, 2)
+                    manure = round(compost * 0.70, 2)
+                    seg_hhs = int(d2d_hhs * random.uniform(0.92, 0.99))
 
                     db.add(DailyWasteLog(
                         ulb_id=ulb.id,
                         log_date=log_dt,
                         total_households=ulb.households,
                         door_to_door_hhs=d2d_hhs,
+                        segregated_hh_collected=seg_hhs,
                         collection_pct=pct,
+                        total_generation_today_mt=tot_gen,
+                        wet_waste_generation_mt=wet_gen,
+                        dry_waste_generation_mt=dry_gen,
                         mcc_capacity=ulb.default_mcc_capacity,
                         mcc_actual=mcc_act,
                         mrf_capacity=ulb.default_mrf_capacity,
@@ -199,7 +219,20 @@ def seed_database(db: Session):
                         biometh_actual=bio_act,
                         other_capacity=ulb.default_other_capacity,
                         other_actual=oth_act,
-                        dump_yard_mt=dump_yard
+                        wet_waste_processed_mt=wet_proc,
+                        compost_output_mt=compost,
+                        manure_sold_free_mt=manure,
+                        recyclable_sold_mt=recyc_sold,
+                        recyclable_sent_to_recyclers_mt=recyc_sent,
+                        dry_waste_cement_mt=dry_cement,
+                        sanitary_waste_incineration_capacity_mt=san_cap,
+                        sanitary_waste_incinerated_today_mt=san_incin,
+                        special_waste_processed_mt=spec_proc,
+                        total_dry_waste_processed_mt=tot_dry_proc,
+                        total_processed_waste_mt=tot_proc,
+                        dump_yard_mt=dump_yard,
+                        processed_waste_pct=proc_pct,
+                        data_quality_flag="OK"
                     ))
         db.commit()
         print("Sample daily logs generated.")

@@ -28,29 +28,43 @@ export default function DailyEntryForm({ user }) {
   });
   const [addingFacility, setAddingFacility] = useState(false);
 
-  // Form state with all SWM fields
+  // Form state with all official 23-column SWM fields
   const [formData, setFormData] = useState({
     total_households: 0,
     door_to_door_hhs: 0,
     segregated_hh_collected: 0,
-    total_generation_today_mt: 0,
     
-    // Wet Waste
+    // Waste Generation (Cols 7, 8, 9)
+    total_generation_today_mt: 0,
+    wet_waste_generation_mt: 0,
+    dry_waste_generation_mt: 0,
+
+    // Wet Waste (Cols 10, 11, 12)
+    wet_waste_processed_mt: 0,
+    compost_output_mt: 0,
+    manure_sold_free_mt: 0,
     mcc_capacity: 0,
     mcc_actual: 0,
     biometh_capacity: 0,
     biometh_actual: 0,
-    compost_output_mt: 0,
-    
-    // Dry Waste
+
+    // Dry Waste (Cols 13, 14, 15)
+    recyclable_sold_mt: 0,
+    recyclable_sent_to_recyclers_mt: 0,
+    dry_waste_cement_mt: 0,
     mrf_capacity: 0,
     mrf_actual: 0,
     other_capacity: 0,
     other_actual: 0,
-    recyclable_sold_mt: 0,
-    dry_waste_cement_mt: 0,
-    
-    // Final Status
+
+    // Sanitary Waste (Cols 16, 17)
+    sanitary_waste_incineration_capacity_mt: 0,
+    sanitary_waste_incinerated_today_mt: 0,
+
+    // Special Waste (Col 18)
+    special_waste_processed_mt: 0,
+
+    // Final Status / Dump Yard (Col 21)
     dump_yard_mt: 0
   });
 
@@ -86,20 +100,31 @@ export default function DailyEntryForm({ user }) {
           total_households: existing.total_households || ulb.households,
           door_to_door_hhs: existing.door_to_door_hhs || 0,
           segregated_hh_collected: existing.segregated_hh_collected ?? existing.door_to_door_hhs ?? 0,
+          
           total_generation_today_mt: existing.total_generation_today_mt || 0,
+          wet_waste_generation_mt: existing.wet_waste_generation_mt || 0,
+          dry_waste_generation_mt: existing.dry_waste_generation_mt || 0,
 
+          wet_waste_processed_mt: existing.wet_waste_processed_mt || 0,
+          compost_output_mt: existing.compost_output_mt || 0,
+          manure_sold_free_mt: existing.manure_sold_free_mt || 0,
           mcc_capacity: existing.mcc_capacity ?? ulb.default_mcc_capacity,
           mcc_actual: existing.mcc_actual || 0,
           biometh_capacity: existing.biometh_capacity ?? ulb.default_biometh_capacity,
           biometh_actual: existing.biometh_actual || 0,
-          compost_output_mt: existing.compost_output_mt || 0,
 
+          recyclable_sold_mt: existing.recyclable_sold_mt || 0,
+          recyclable_sent_to_recyclers_mt: existing.recyclable_sent_to_recyclers_mt || 0,
+          dry_waste_cement_mt: existing.dry_waste_cement_mt || 0,
           mrf_capacity: existing.mrf_capacity ?? ulb.default_mrf_capacity,
           mrf_actual: existing.mrf_actual || 0,
           other_capacity: existing.other_capacity ?? ulb.default_other_capacity,
           other_actual: existing.other_actual || 0,
-          recyclable_sold_mt: existing.recyclable_sold_mt || 0,
-          dry_waste_cement_mt: existing.dry_waste_cement_mt || 0,
+
+          sanitary_waste_incineration_capacity_mt: existing.sanitary_waste_incineration_capacity_mt || 0,
+          sanitary_waste_incinerated_today_mt: existing.sanitary_waste_incinerated_today_mt || 0,
+
+          special_waste_processed_mt: existing.special_waste_processed_mt || 0,
 
           dump_yard_mt: existing.dump_yard_mt || 0
         });
@@ -343,38 +368,58 @@ export default function DailyEntryForm({ user }) {
     }
   };
 
-  // Real-time calculations
+  // Real-time calculations matching the official 23-column spec
   const totalHH = ulbData?.households || formData.total_households || 1;
   const d2dCoveragePct = ((formData.door_to_door_hhs / totalHH) * 100).toFixed(1);
   const segregationPct = ((formData.segregated_hh_collected / totalHH) * 100).toFixed(1);
 
-  // Wet waste stream
-  const wetWasteProcessedMT = effectiveMccActual + formData.biometh_actual;
+  // Col 10: Wet waste processed MCC / BIO-METHA (MT) & others
+  const wetWasteProcessedMT = Number(formData.wet_waste_processed_mt) > 0
+    ? Number(formData.wet_waste_processed_mt)
+    : Number((effectiveMccActual + formData.biometh_actual).toFixed(2));
   const wetCapacityMT = computedMccCapacity + (ulbData?.default_biometh_capacity ?? formData.biometh_capacity ?? 0);
 
-  // Dry waste stream
+  // Col 19: Total dry waste processed (MT) = 13 + 14 + 15
+  const col13RecycSold = Number(formData.recyclable_sold_mt) || 0;
+  const col14RecycSent = Number(formData.recyclable_sent_to_recyclers_mt) || 0;
+  const col15CementRdf = Number(formData.dry_waste_cement_mt) || 0;
+  const totalDryWasteProcessedMT = Number((col13RecycSold + col14RecycSent + col15CementRdf).toFixed(2));
   const dryFacilitiesCapacityMT = computedMrfCapacity + (ulbData?.default_other_capacity ?? formData.other_capacity ?? 0);
-  const dryWasteProcessedMT = effectiveMrfActual + formData.recyclable_sold_mt + formData.dry_waste_cement_mt + formData.other_actual;
 
-  // Totals & diversion
-  const totalProcessedMT = wetWasteProcessedMT + dryWasteProcessedMT;
-  const totalWasteHandledMT = totalProcessedMT + formData.dump_yard_mt;
-  const processedWastePct = totalWasteHandledMT > 0 ? ((totalProcessedMT / totalWasteHandledMT) * 100).toFixed(1) : '0.0';
+  // Col 20: Total processed waste (MT) = 10 + 17 + 18 + 19
+  const col17SanIncin = Number(formData.sanitary_waste_incinerated_today_mt) || 0;
+  const col18SpecProc = Number(formData.special_waste_processed_mt) || 0;
+  const totalProcessedMT = Number((wetWasteProcessedMT + col17SanIncin + col18SpecProc + totalDryWasteProcessedMT).toFixed(2));
 
-  // Live Data Quality Pre-Check: Rule: Segregated HH > Total HH
+  // Col 21: Waste sent to dumping yard (MT) = 7 - 20
+  const genToday = Number(formData.total_generation_today_mt) || 0;
+  const dumpYardMT = Number((genToday - totalProcessedMT).toFixed(2));
+
+  // Col 22: % of processed waste = 20 / 7
+  const processedWastePct = genToday > 0 ? ((totalProcessedMT / genToday) * 100).toFixed(1) : '0.0';
+
+  // Col 23: Data Quality Flag
   const isSegregatedExceeded = totalHH > 0 && formData.segregated_hh_collected > totalHH;
+  const isProcessedExceeded = genToday > 0 && totalProcessedMT > genToday;
 
   const getQualityPreview = () => {
     if (isSegregatedExceeded) {
       return {
         flag: 'Segregated HH>Total HH',
-        text: `Data-Quality Flag Warning: Segregated HH (${Number(formData.segregated_hh_collected).toLocaleString()}) exceeds Total Registered Households (${Number(totalHH).toLocaleString()})!`,
+        text: `Data-Quality Flag: Segregated HH (${Number(formData.segregated_hh_collected).toLocaleString()}) exceeds Total Registered Households (${Number(totalHH).toLocaleString()})!`,
         color: 'bg-rose-100 text-rose-900 border-rose-300'
+      };
+    }
+    if (isProcessedExceeded) {
+      return {
+        flag: 'Processed>Generation',
+        text: `Data-Quality Flag: Total Processed Waste (${totalProcessedMT.toFixed(2)} MT) exceeds Total Generation Today (${genToday.toFixed(2)} MT)!`,
+        color: 'bg-amber-100 text-amber-900 border-amber-300'
       };
     }
     return {
       flag: 'OK',
-      text: 'Verified: Segregated households within official registered target (Segregated HH ≤ Total HH).',
+      text: 'Verified: All validation checks passed (Segregated HH ≤ Total HH & Processed ≤ Generation).',
       color: 'bg-emerald-100 text-emerald-800 border-emerald-300'
     };
   };
@@ -559,48 +604,83 @@ export default function DailyEntryForm({ user }) {
           </div>
         </div>
 
-        {/* SECTION 2: Total Waste Generation Today */}
+        {/* SECTION 2: WASTE GENERATION (Cols 7, 8, 9) */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="bg-slate-800 text-white px-4 sm:px-5 py-2.5 flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <Scale className="w-4 h-4 text-emerald-400" />
               <h3 className="text-xs sm:text-sm font-semibold uppercase tracking-wider">
-                2. Daily Waste Generation
+                2. WASTE GENERATION (Cols 7, 8, 9)
               </h3>
             </div>
-            <span className="text-xs text-slate-300 font-mono">Weighbridge / Estimated</span>
+            <span className="text-xs text-slate-300 font-mono">Weighbridge / Estimated MT</span>
           </div>
 
-          <div className="p-4 sm:p-5 flex flex-col sm:flex-row items-center gap-4">
-            <div className="w-full sm:w-1/2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Total waste generation Today (MT) *
-              </label>
-              <input
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0"
-                value={formData.total_generation_today_mt}
-                onChange={(e) => handleChange('total_generation_today_mt', e.target.value)}
-                required
-                className="w-full px-3 py-2 text-base sm:text-sm bg-white border-2 border-emerald-500 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono font-bold text-slate-900 shadow-sm"
-                placeholder="e.g. 45.50"
-              />
-              <span className="text-[10px] text-slate-500">Total estimated or weighbridge waste generated today in MT</span>
+          <div className="p-4 sm:p-5 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              {/* Col 7: Total Waste Generation Today */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Total waste generation Today (MT) * (Col 7)
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={formData.total_generation_today_mt}
+                  onChange={(e) => handleChange('total_generation_today_mt', e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-base sm:text-sm bg-white border-2 border-emerald-500 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono font-bold text-slate-900 shadow-sm"
+                  placeholder="e.g. 45.50"
+                />
+                <span className="text-[10px] text-slate-500">Official total generation in MT</span>
+              </div>
+
+              {/* Col 8: Wet Waste Generation */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Wet waste generation (MT) (Col 8)
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={formData.wet_waste_generation_mt}
+                  onChange={(e) => handleChange('wet_waste_generation_mt', e.target.value)}
+                  className="w-full px-3 py-2 text-base sm:text-sm bg-white border border-emerald-400 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono font-bold text-emerald-900 shadow-sm"
+                  placeholder="e.g. 25.00"
+                />
+                <span className="text-[10px] text-slate-500">Daily wet stream generation</span>
+              </div>
+
+              {/* Col 9: Dry Waste Generation */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Dry waste generation (MT) (Col 9)
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={formData.dry_waste_generation_mt}
+                  onChange={(e) => handleChange('dry_waste_generation_mt', e.target.value)}
+                  className="w-full px-3 py-2 text-base sm:text-sm bg-white border border-cyan-400 rounded-lg focus:ring-2 focus:ring-cyan-500 font-mono font-bold text-cyan-900 shadow-sm"
+                  placeholder="e.g. 20.50"
+                />
+                <span className="text-[10px] text-slate-500">Daily dry stream generation</span>
+              </div>
             </div>
 
-            <div className="w-full sm:w-1/2 bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-              <span className="text-slate-500 font-medium">Daily Generation Benchmark:</span>
-              <div className="flex items-baseline space-x-2 mt-1">
-                <span className="text-lg font-bold font-mono text-slate-800">
-                  {formData.total_generation_today_mt > 0 ? `${formData.total_generation_today_mt.toFixed(2)} MT` : 'Not recorded'}
-                </span>
-                {formData.total_generation_today_mt > 0 && totalHH > 0 && (
-                  <span className="text-[11px] text-slate-500 font-mono">
-                    (~{((formData.total_generation_today_mt * 1000) / (totalHH * 4.2)).toFixed(2)} kg/capita/day)
-                  </span>
-                )}
+            {/* Quick Balance Check */}
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2">
+              <span className="text-slate-600 font-medium">Generation Balance Breakdown:</span>
+              <div className="flex items-center gap-3">
+                <span className="text-slate-600">Wet: <strong className="font-mono text-emerald-800">{(Number(formData.wet_waste_generation_mt) || 0).toFixed(2)} MT</strong></span>
+                <span className="text-slate-600">Dry: <strong className="font-mono text-cyan-800">{(Number(formData.dry_waste_generation_mt) || 0).toFixed(2)} MT</strong></span>
+                <span className="text-slate-600 border-l border-slate-300 pl-3">Total: <strong className="font-mono text-slate-900">{(Number(formData.total_generation_today_mt) || 0).toFixed(2)} MT</strong></span>
               </div>
             </div>
           </div>
@@ -752,11 +832,11 @@ export default function DailyEntryForm({ user }) {
                 <span className="text-[10px] text-slate-500">Wet waste incoming to BioMeth in MT</span>
               </div>
 
-              {/* Output quantity as compost per day (MT) */}
+              {/* Col 11: Compost generated today (MT) */}
               <div className="p-3 rounded-lg bg-teal-50/50 border border-teal-200">
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-xs font-bold text-teal-950 flex items-center gap-1">
-                    <Award className="w-3.5 h-3.5 text-teal-600" /> Output Compost (MT) *
+                    <Award className="w-3.5 h-3.5 text-teal-600" /> Compost generated today (MT) * (Col 11)
                   </span>
                   <span className="text-[10px] bg-teal-200/80 text-teal-900 px-1.5 py-0.2 rounded font-medium">Product</span>
                 </div>
@@ -771,6 +851,27 @@ export default function DailyEntryForm({ user }) {
                   placeholder="0.00"
                 />
                 <span className="text-[10px] text-slate-500">Finished compost harvested today in MT</span>
+              </div>
+
+              {/* Col 12: Manure sold / given at free of cost (MT) */}
+              <div className="p-3 rounded-lg bg-emerald-50/50 border border-emerald-200">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs font-bold text-emerald-950 flex items-center gap-1">
+                    <Award className="w-3.5 h-3.5 text-emerald-600" /> Manure sold / free of cost (MT) (Col 12)
+                  </span>
+                  <span className="text-[10px] bg-emerald-200/80 text-emerald-900 px-1.5 py-0.2 rounded font-medium">Offtake</span>
+                </div>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={formData.manure_sold_free_mt}
+                  onChange={(e) => handleChange('manure_sold_free_mt', e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-base sm:text-sm bg-white border-2 border-emerald-500 rounded font-mono font-bold text-emerald-900"
+                  placeholder="0.00"
+                />
+                <span className="text-[10px] text-slate-500">Manure distributed or sold to farmers/public</span>
               </div>
             </div>
           </div>
@@ -899,13 +1000,13 @@ export default function DailyEntryForm({ user }) {
               </div>
             )}
 
-            {/* Other Dry Recovery Components */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-cyan-100">
-              {/* Recyclable waste sold by sanitary workers (MT) */}
+            {/* Other Dry Recovery Components (Cols 13, 14, 15) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-cyan-100">
+              {/* Col 13: Recyclable waste sold by sanitary workers (MT) */}
               <div className="p-3 rounded-lg bg-blue-50/50 border border-blue-200">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs font-bold text-blue-950">Recyclables Sold by Workers *</span>
-                  <span className="text-[10px] bg-blue-200/80 text-blue-900 px-1.5 py-0.2 rounded font-medium">Recovery</span>
+                  <span className="text-xs font-bold text-blue-950">Sold by Workers (MT) (Col 13)</span>
+                  <span className="text-[10px] bg-blue-200/80 text-blue-900 px-1.5 py-0.2 rounded font-medium">Workers</span>
                 </div>
                 <input
                   type="number"
@@ -917,13 +1018,32 @@ export default function DailyEntryForm({ user }) {
                   className="w-full px-2.5 py-1.5 text-base sm:text-sm bg-white border-2 border-blue-500 rounded font-mono font-bold text-blue-900"
                   placeholder="0.00"
                 />
-                <span className="text-[10px] text-slate-500">Sold recyclables (paper, plastic, scrap) in MT</span>
+                <span className="text-[10px] text-slate-500">Recyclables sold directly by workers in MT</span>
               </div>
 
-              {/* Dry waste disposed (Cement industries / recycling units) (MT) */}
+              {/* Col 14: Recyclable waste sent to recyclers (MT) */}
+              <div className="p-3 rounded-lg bg-cyan-50/50 border border-cyan-200">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs font-bold text-cyan-950">Sent to Recyclers (MT) (Col 14)</span>
+                  <span className="text-[10px] bg-cyan-200/80 text-cyan-900 px-1.5 py-0.2 rounded font-medium">Recyclers</span>
+                </div>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={formData.recyclable_sent_to_recyclers_mt}
+                  onChange={(e) => handleChange('recyclable_sent_to_recyclers_mt', e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-base sm:text-sm bg-white border-2 border-cyan-500 rounded font-mono font-bold text-cyan-900"
+                  placeholder="0.00"
+                />
+                <span className="text-[10px] text-slate-500">Dry waste sent to registered recyclers in MT</span>
+              </div>
+
+              {/* Col 15: Dry waste disposed to Cement industries (MT) */}
               <div className="p-3 rounded-lg bg-indigo-50/50 border border-indigo-200">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs font-bold text-indigo-950">Dry Waste to Cement / Plants *</span>
+                  <span className="text-xs font-bold text-indigo-950">Disposed to Cement (MT) (Col 15)</span>
                   <span className="text-[10px] bg-indigo-200/80 text-indigo-900 px-1.5 py-0.2 rounded font-medium">RDF</span>
                 </div>
                 <input
@@ -936,73 +1056,161 @@ export default function DailyEntryForm({ user }) {
                   className="w-full px-2.5 py-1.5 text-base sm:text-sm bg-white border-2 border-indigo-500 rounded font-mono font-bold text-indigo-900"
                   placeholder="0.00"
                 />
-                <span className="text-[10px] text-slate-500">RDF / combustible waste to cement kilns</span>
+                <span className="text-[10px] text-slate-500">Non-recyclable combustible RDF to cement plants</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* SECTION 5: Dump Yard & Real-Time Status */}
-        <div className="bg-white rounded-xl border border-rose-200 shadow-sm overflow-hidden">
-          <div className="bg-rose-900 text-white px-4 sm:px-5 py-2.5 flex items-center justify-between">
+        {/* SECTION 5: SANITARY & SPECIAL WASTE (Cols 16, 17, 18) */}
+        <div className="bg-white rounded-xl border border-purple-200 shadow-sm overflow-hidden">
+          <div className="bg-purple-900 text-white px-4 sm:px-5 py-2.5 flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <Trash2 className="w-4 h-4 text-rose-300" />
+              <ShieldAlert className="w-4 h-4 text-purple-300" />
               <h3 className="text-xs sm:text-sm font-semibold uppercase tracking-wider">
-                5. Dump Yard & SWM Performance Status
+                5. SANITARY & SPECIAL WASTE (Cols 16, 17, 18)
               </h3>
             </div>
-            <span className="text-xs text-rose-200">Reject / Landfill Load</span>
+            <span className="text-xs text-purple-200">Safe Disposal & Incineration</span>
+          </div>
+
+          <div className="p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            {/* Col 16: Sanitary waste - incineration capacity (MT/day) */}
+            <div className="p-3 rounded-lg bg-purple-50/50 border border-purple-200">
+              <label className="block text-xs font-semibold text-purple-950 mb-1">
+                Incineration Capacity (MT/day) (Col 16)
+              </label>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={formData.sanitary_waste_incineration_capacity_mt}
+                onChange={(e) => handleChange('sanitary_waste_incineration_capacity_mt', e.target.value)}
+                className="w-full px-2.5 py-1.5 text-base sm:text-sm bg-white border border-purple-300 rounded font-mono font-bold text-purple-900"
+                placeholder="0.00"
+              />
+              <span className="text-[10px] text-slate-500">Installed sanitary waste incinerator capacity</span>
+            </div>
+
+            {/* Col 17: Sanitary waste incinerated today (MT) */}
+            <div className="p-3 rounded-lg bg-purple-50/50 border border-purple-200">
+              <label className="block text-xs font-semibold text-purple-950 mb-1">
+                Sanitary Incinerated Today (MT) (Col 17)
+              </label>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={formData.sanitary_waste_incinerated_today_mt}
+                onChange={(e) => handleChange('sanitary_waste_incinerated_today_mt', e.target.value)}
+                className="w-full px-2.5 py-1.5 text-base sm:text-sm bg-white border-2 border-purple-500 rounded font-mono font-bold text-purple-900"
+                placeholder="0.00"
+              />
+              <span className="text-[10px] text-slate-500">Sanitary waste incinerated today in MT</span>
+            </div>
+
+            {/* Col 18: Special waste processed / disposed today (MT) */}
+            <div className="p-3 rounded-lg bg-fuchsia-50/50 border border-fuchsia-200">
+              <label className="block text-xs font-semibold text-fuchsia-950 mb-1">
+                Special Waste Disposed (MT) (Col 18)
+              </label>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={formData.special_waste_processed_mt}
+                onChange={(e) => handleChange('special_waste_processed_mt', e.target.value)}
+                className="w-full px-2.5 py-1.5 text-base sm:text-sm bg-white border-2 border-fuchsia-500 rounded font-mono font-bold text-fuchsia-900"
+                placeholder="0.00"
+              />
+              <span className="text-[10px] text-slate-500">Hazardous / e-waste / special waste handled</span>
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION 6: CALCULATED - DO NOT ENTER (Cols 19, 20, 21, 22, 23) */}
+        <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
+          <div className="bg-slate-900 text-white px-4 sm:px-5 py-2.5 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Lock className="w-4 h-4 text-amber-400" />
+              <h3 className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-amber-300">
+                6. CALCULATED - DO NOT ENTER (Cols 19, 20, 21, 22, 23)
+              </h3>
+            </div>
+            <span className="text-[11px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-mono">
+              Auto-Computed by Official Formulas
+            </span>
           </div>
 
           <div className="p-4 sm:p-5 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 items-center">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Waste sent to dumping yard (MT) *
-                </label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  min="0"
-                  value={formData.dump_yard_mt}
-                  onChange={(e) => handleChange('dump_yard_mt', e.target.value)}
-                  required
-                  className="w-full px-3 py-2 text-base sm:text-sm bg-white border-2 border-rose-400 rounded-lg focus:ring-2 focus:ring-rose-500 font-mono font-bold text-rose-900"
-                  placeholder="0.00"
-                />
-                <span className="text-[10px] text-slate-500">Unprocessed waste sent to dump yard</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Col 19: Total dry waste processed = 13 + 14 + 15 */}
+              <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200">
+                <span className="text-[10px] uppercase font-bold text-blue-800 block">
+                  Col 19: Total Dry Processed
+                </span>
+                <span className="text-[10px] text-blue-600 font-mono block">=13+14+15</span>
+                <div className="text-xl font-bold font-mono text-blue-950 mt-1">
+                  {totalDryWasteProcessedMT.toFixed(2)} MT
+                </div>
+                <span className="text-[10px] text-blue-700">Sold + Recyclers + Cement</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-                <span className="text-slate-500">Total Processed Waste:</span>
-                <div className="text-lg font-bold font-mono text-emerald-700 mt-0.5">
+              {/* Col 20: Total processed waste = 10 + 17 + 18 + 19 */}
+              <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-200">
+                <span className="text-[10px] uppercase font-bold text-emerald-800 block">
+                  Col 20: Total Processed Waste
+                </span>
+                <span className="text-[10px] text-emerald-600 font-mono block">=10+17+18+19</span>
+                <div className="text-xl font-bold font-mono text-emerald-950 mt-1">
                   {totalProcessedMT.toFixed(2)} MT
                 </div>
-                <span className="text-[10px] text-slate-400">Wet ({wetWasteProcessedMT.toFixed(1)}) + Dry ({dryWasteProcessedMT.toFixed(1)})</span>
+                <span className="text-[10px] text-emerald-700">Wet + Sanitary + Special + Dry</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
-                <span className="text-slate-500">% of Processed Waste:</span>
-                <div className="text-lg font-bold font-mono text-indigo-700 mt-0.5">
+              {/* Col 21: Waste sent to dumping yard = 7 - 20 */}
+              <div className="bg-rose-50/70 p-3 rounded-xl border border-rose-200">
+                <span className="text-[10px] uppercase font-bold text-rose-800 block">
+                  Col 21: Dump Yard Waste
+                </span>
+                <span className="text-[10px] text-rose-600 font-mono block">=7-20</span>
+                <div className="text-xl font-bold font-mono text-rose-950 mt-1">
+                  {dumpYardMT.toFixed(2)} MT
+                </div>
+                <span className="text-[10px] text-rose-700">Generation - Processed</span>
+              </div>
+
+              {/* Col 22: % of processed waste = 20 / 7 */}
+              <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-200">
+                <span className="text-[10px] uppercase font-bold text-indigo-800 block">
+                  Col 22: % Processed Waste
+                </span>
+                <span className="text-[10px] text-indigo-600 font-mono block">=20/7</span>
+                <div className="text-xl font-bold font-mono text-indigo-950 mt-1">
                   {processedWastePct}%
                 </div>
-                <span className="text-[10px] text-slate-400">Diversion from landfill</span>
+                <span className="text-[10px] text-indigo-700">Landfill diversion rate</span>
               </div>
             </div>
 
-            {/* Live Data Quality Pre-Check Badge */}
-            <div className={`p-3 rounded-lg border flex items-start gap-2 text-xs ${qualityInfo.color}`}>
-              {qualityInfo.flag === 'VALID' ? (
+            {/* Col 23: Data-quality flag Alert */}
+            <div className={`p-3.5 rounded-xl border flex items-start gap-2.5 text-xs ${qualityInfo.color}`}>
+              {qualityInfo.flag === 'OK' ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
               ) : (
-                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
               )}
               <div>
-                <div className="font-bold uppercase tracking-wide">
-                  Data-Quality Flag: {qualityInfo.flag}
+                <div className="font-bold uppercase tracking-wide flex items-center gap-2">
+                  <span>Col 23: Data-Quality Flag:</span>
+                  <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-white/80 shadow-xs">
+                    {qualityInfo.flag}
+                  </span>
                 </div>
-                <div className="text-[11px] mt-0.5 leading-relaxed">
+                <div className="text-[11px] mt-1 leading-relaxed">
                   {qualityInfo.text}
                 </div>
               </div>

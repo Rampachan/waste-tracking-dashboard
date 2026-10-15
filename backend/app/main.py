@@ -103,10 +103,50 @@ def _async_seed():
     except Exception as e:
         print(f"Async seed warning: {e}")
 
+def run_db_migrations():
+    """Ensure all required columns for 23-column format exist in daily_waste_logs"""
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(engine)
+        if "daily_waste_logs" in inspector.get_table_names():
+            columns = [c["name"] for c in inspector.get_columns("daily_waste_logs")]
+            needed_columns = {
+                "segregated_hh_collected": "INTEGER DEFAULT 0",
+                "total_generation_today_mt": "FLOAT DEFAULT 0.0",
+                "wet_waste_generation_mt": "FLOAT DEFAULT 0.0",
+                "dry_waste_generation_mt": "FLOAT DEFAULT 0.0",
+                "wet_waste_processed_mt": "FLOAT DEFAULT 0.0",
+                "compost_output_mt": "FLOAT DEFAULT 0.0",
+                "manure_sold_free_mt": "FLOAT DEFAULT 0.0",
+                "recyclable_sold_mt": "FLOAT DEFAULT 0.0",
+                "recyclable_sent_to_recyclers_mt": "FLOAT DEFAULT 0.0",
+                "dry_waste_cement_mt": "FLOAT DEFAULT 0.0",
+                "sanitary_waste_incineration_capacity_mt": "FLOAT DEFAULT 0.0",
+                "sanitary_waste_incinerated_today_mt": "FLOAT DEFAULT 0.0",
+                "special_waste_processed_mt": "FLOAT DEFAULT 0.0",
+                "total_dry_waste_processed_mt": "FLOAT DEFAULT 0.0",
+                "total_processed_waste_mt": "FLOAT DEFAULT 0.0",
+                "dump_yard_mt": "FLOAT DEFAULT 0.0",
+                "processed_waste_pct": "FLOAT DEFAULT 0.0",
+                "data_quality_flag": "VARCHAR(50) DEFAULT 'OK'"
+            }
+            with engine.connect() as conn:
+                for col_name, col_type in needed_columns.items():
+                    if col_name not in columns:
+                        print(f"Migrating table daily_waste_logs: adding column {col_name} {col_type}")
+                        try:
+                            conn.execute(text(f"ALTER TABLE daily_waste_logs ADD COLUMN {col_name} {col_type}"))
+                        except Exception as ce:
+                            print(f"Column add warning {col_name}: {ce}")
+                conn.commit()
+    except Exception as e:
+        print(f"Migration warning: {e}")
+
 @app.on_event("startup")
 def startup_event():
     try:
         Base.metadata.create_all(bind=engine)
+        run_db_migrations()
         import threading
         threading.Thread(target=_async_seed, daemon=True).start()
     except Exception as e:
@@ -118,6 +158,7 @@ def reset_seed_endpoint(db: Session = Depends(get_db)):
     Public administrative utility to force-seed database tables and default accounts.
     """
     Base.metadata.create_all(bind=engine)
+    run_db_migrations()
     seed_database(db)
     user_count = db.query(User).count()
     ulb_count = db.query(ULB).count()
@@ -328,22 +369,22 @@ def compute_data_quality_flag(
     total_hh: int,
     segregated_hh: int,
     generation_mt: float = 0.0,
-    wet_proc_mt: float = 0.0,
-    dry_proc_mt: float = 0.0,
-    total_cap_mt: float = 0.0,
-    dump_yard_mt: float = 0.0
+    processed_mt: float = 0.0,
+    **kwargs
 ) -> tuple[str, str]:
     """
     Automated SWM Data-Quality Flag Engine.
-    Rule: Flag when Segregated HH > Total HH.
-    Returns:
+    Rules per official 23-column spec:
       - 'Segregated HH>Total HH' if segregated_hh > total_hh
+      - 'Processed>Generation' if processed_mt > generation_mt and generation_mt > 0
       - 'OK' otherwise
     """
     if total_hh > 0 and segregated_hh > total_hh:
         return ("Segregated HH>Total HH", f"Data-Quality Flag: Segregated HH ({segregated_hh}) > Total HH ({total_hh})")
+    if generation_mt > 0 and round(processed_mt, 2) > round(generation_mt, 2):
+        return ("Processed>Generation", f"Data-Quality Flag: Total Processed ({processed_mt} MT) > Generation ({generation_mt} MT)")
     
-    return ("OK", "Normal: Segregated HH <= Total HH")
+    return ("OK", "Normal: Validation checks passed")
 
 
 # ----------------- SWM FACILITY MANAGEMENT ENDPOINTS -----------------
@@ -479,14 +520,45 @@ def build_daily_log_response(log: DailyWasteLog, ulb: ULB, db: Session) -> Daily
             notes=fl.notes
         ))
 
-    wet_proc = log.mcc_actual + log.biometh_actual
-    dry_proc = log.mrf_actual + (log.recyclable_sold_mt or 0.0) + (log.dry_waste_cement_mt or 0.0) + log.other_actual
-    proc = wet_proc + dry_proc
-    tot_w = proc + log.dump_yard_mt
-    div_rate = round((proc / tot_w) * 100, 2) if tot_w > 0 else 0.0
-    tot_cap = log.mcc_capacity + log.mrf_capacity + log.biometh_capacity + log.other_capacity
-    seg_hh = log.segregated_hh_collected or log.door_to_door_hhs
+    seg_hh = log.segregated_hh_collected if (log.segregated_hh_collected is not None and log.segregated_hh_collected > 0) else (log.door_to_door_hhs or 0)
     seg_pct = round((seg_hh / log.total_households) * 100, 2) if log.total_households > 0 else 0.0
+
+    # Wet waste processed (Col 10)
+    wet_proc = log.wet_waste_processed_mt if (log.wet_waste_processed_mt is not None and log.wet_waste_processed_mt > 0) else round((log.mcc_actual or 0.0) + (log.biometh_actual or 0.0), 2)
+    
+    # Dry waste components (Cols 13, 14, 15)
+    recyc_sold = log.recyclable_sold_mt or 0.0
+    recyc_sent = log.recyclable_sent_to_recyclers_mt or 0.0
+    cement_rdf = log.dry_waste_cement_mt or 0.0
+    # Col 19: Total dry waste processed (MT) = 13 + 14 + 15
+    dry_proc = log.total_dry_waste_processed_mt if (log.total_dry_waste_processed_mt is not None and log.total_dry_waste_processed_mt > 0) else round(recyc_sold + recyc_sent + cement_rdf, 2)
+
+    # Sanitary & Special Waste (Cols 16, 17, 18)
+    san_cap = log.sanitary_waste_incineration_capacity_mt or 0.0
+    san_incin = log.sanitary_waste_incinerated_today_mt or 0.0
+    spec_proc = log.special_waste_processed_mt or 0.0
+
+    # Col 20: Total processed waste (MT) = 10 + 17 + 18 + 19
+    tot_proc = log.total_processed_waste_mt if (log.total_processed_waste_mt is not None and log.total_processed_waste_mt > 0) else round(wet_proc + san_incin + spec_proc + dry_proc, 2)
+
+    # Col 21: Waste sent to dumping yard (MT) = 7 - 20
+    gen_today = log.total_generation_today_mt or 0.0
+    dump_yard = log.dump_yard_mt if log.dump_yard_mt is not None else round(gen_today - tot_proc, 2)
+
+    # Col 22: % of processed waste = 20 / 7
+    proc_pct = log.processed_waste_pct if (log.processed_waste_pct is not None and log.processed_waste_pct > 0) else (round((tot_proc / gen_today) * 100, 2) if gen_today > 0 else 0.0)
+
+    # Col 23: Data Quality Flag
+    flag, note = compute_data_quality_flag(
+        total_hh=log.total_households,
+        segregated_hh=seg_hh,
+        generation_mt=gen_today,
+        processed_mt=tot_proc
+    )
+
+    tot_cap = log.mcc_capacity + log.mrf_capacity + log.biometh_capacity + log.other_capacity
+    tot_w = tot_proc + (dump_yard if dump_yard > 0 else 0.0)
+    div_rate = proc_pct
 
     return DailyLogResponse(
         id=log.id,
@@ -500,28 +572,53 @@ def build_daily_log_response(log: DailyWasteLog, ulb: ULB, db: Session) -> Daily
         segregated_hh_collected=seg_hh,
         collection_pct=log.collection_pct,
         segregation_pct=seg_pct,
-        total_generation_today_mt=log.total_generation_today_mt or 0.0,
+
+        # Waste Generation (Cols 7, 8, 9)
+        total_generation_today_mt=gen_today,
+        wet_waste_generation_mt=log.wet_waste_generation_mt or 0.0,
+        dry_waste_generation_mt=log.dry_waste_generation_mt or 0.0,
+
+        # Wet Waste (Cols 10, 11, 12)
         mcc_capacity=log.mcc_capacity,
         mcc_actual=log.mcc_actual,
         biometh_capacity=log.biometh_capacity,
         biometh_actual=log.biometh_actual,
         wet_waste_processed_mt=round(wet_proc, 2),
         compost_output_mt=log.compost_output_mt or 0.0,
+        manure_sold_free_mt=log.manure_sold_free_mt or 0.0,
+
+        # Dry Waste (Cols 13, 14, 15)
         mrf_capacity=log.mrf_capacity,
         mrf_actual=log.mrf_actual,
         other_capacity=log.other_capacity,
         other_actual=log.other_actual,
         dry_facilities_capacity_mt=round(log.mrf_capacity + log.other_capacity, 2),
-        recyclable_sold_mt=log.recyclable_sold_mt or 0.0,
-        dry_waste_cement_mt=log.dry_waste_cement_mt or 0.0,
+        recyclable_sold_mt=recyc_sold,
+        recyclable_sent_to_recyclers_mt=recyc_sent,
+        dry_waste_cement_mt=cement_rdf,
+
+        # Sanitary Waste (Cols 16, 17)
+        sanitary_waste_incineration_capacity_mt=san_cap,
+        sanitary_waste_incinerated_today_mt=san_incin,
+
+        # Special Waste (Col 18)
+        special_waste_processed_mt=spec_proc,
+
         facility_logs=facility_resp,
-        dump_yard_mt=log.dump_yard_mt,
-        total_processed_mt=round(proc, 2),
+
+        # Calculated (Cols 19, 20, 21, 22, 23)
+        total_dry_waste_processed_mt=round(dry_proc, 2),
+        total_processed_waste_mt=round(tot_proc, 2),
+        dump_yard_mt=round(dump_yard, 2),
+        processed_waste_pct=round(proc_pct, 2),
+        data_quality_flag=flag,
+        data_quality_note=note,
+
+        # Backward compatibility fields
+        total_processed_mt=round(tot_proc, 2),
         total_capacity_mt=round(tot_cap, 2),
         total_waste_handled_mt=round(tot_w, 2),
         diversion_rate_pct=div_rate,
-        processed_waste_pct=div_rate,
-        data_quality_flag="Segregated HH>Total HH" if (seg_hh > log.total_households) else (log.data_quality_flag or "OK"),
         created_at=log.created_at,
         updated_at=log.updated_at
     )
@@ -549,14 +646,12 @@ def create_or_update_log(
 
     # Enforce frozen static master baseline data for ULB users
     if current_user.role == "ULB_USER":
-        # Static baseline values are strictly frozen and taken from the ULB master profile
         total_hh = ulb.households
         mcc_cap = ulb.default_mcc_capacity
         mrf_cap = ulb.default_mrf_capacity
         bio_cap = ulb.default_biometh_capacity
         oth_cap = ulb.default_other_capacity
     else:
-        # Admin / HQ can provide overrides if needed
         total_hh = payload.total_households
         mcc_cap = payload.mcc_capacity
         mrf_cap = payload.mrf_capacity
@@ -617,22 +712,38 @@ def create_or_update_log(
     collection_pct = round((d2d_hh / total_hh) * 100, 2) if total_hh > 0 else 0.0
     segregation_pct = round((seg_hh / total_hh) * 100, 2) if total_hh > 0 else 0.0
 
-    # Stream calculations
-    wet_proc = mcc_act_val + payload.biometh_actual
-    dry_proc = mrf_act_val + payload.recyclable_sold_mt + payload.dry_waste_cement_mt + payload.other_actual
-    total_cap = mcc_cap_val + bio_cap + mrf_cap_val + oth_cap
-    total_proc = wet_proc + dry_proc
-    total_waste = total_proc + payload.dump_yard_mt
+    # Wet waste processed (Col 10): direct input or fallback to MCC + Biometh
+    wet_proc_val = payload.wet_waste_processed_mt if payload.wet_waste_processed_mt > 0 else (mcc_act_val + payload.biometh_actual)
 
-    # Automated data quality check
+    # Dry waste components (Cols 13, 14, 15)
+    recyc_sold = payload.recyclable_sold_mt
+    recyc_sent = payload.recyclable_sent_to_recyclers_mt
+    dry_cement = payload.dry_waste_cement_mt
+    
+    # Col 19: Total dry waste processed (MT) = 13 + 14 + 15
+    tot_dry_proc = round(recyc_sold + recyc_sent + dry_cement, 2)
+
+    # Sanitary & Special Waste (Cols 16, 17, 18)
+    san_cap = payload.sanitary_waste_incineration_capacity_mt
+    san_incin = payload.sanitary_waste_incinerated_today_mt
+    spec_proc = payload.special_waste_processed_mt
+
+    # Col 20: Total processed waste (MT) = 10 + 17 + 18 + 19
+    tot_proc = round(wet_proc_val + san_incin + spec_proc + tot_dry_proc, 2)
+
+    # Col 21: Waste sent to dumping yard (MT) = 7 - 20
+    gen_today = payload.total_generation_today_mt
+    dump_yard_val = round(gen_today - tot_proc, 2) if payload.dump_yard_mt is None else payload.dump_yard_mt
+
+    # Col 22: % of processed waste = 20 / 7
+    proc_pct = round((tot_proc / gen_today) * 100, 2) if gen_today > 0 else 0.0
+
+    # Col 23: Data quality flag
     quality_flag, quality_note = compute_data_quality_flag(
         total_hh=total_hh,
         segregated_hh=seg_hh,
-        generation_mt=payload.total_generation_today_mt,
-        wet_proc_mt=wet_proc,
-        dry_proc_mt=dry_proc,
-        total_cap_mt=total_cap,
-        dump_yard_mt=payload.dump_yard_mt
+        generation_mt=gen_today,
+        processed_mt=tot_proc
     )
 
     # Upsert: find existing log for that date
@@ -647,7 +758,10 @@ def create_or_update_log(
         log.door_to_door_hhs = d2d_hh
         log.segregated_hh_collected = seg_hh
         log.collection_pct = collection_pct
-        log.total_generation_today_mt = payload.total_generation_today_mt
+        log.total_generation_today_mt = gen_today
+        log.wet_waste_generation_mt = payload.wet_waste_generation_mt
+        log.dry_waste_generation_mt = payload.dry_waste_generation_mt
+
         log.mcc_capacity = mcc_cap_val
         log.mcc_actual = mcc_act_val
         log.mrf_capacity = mrf_cap_val
@@ -656,10 +770,23 @@ def create_or_update_log(
         log.biometh_actual = payload.biometh_actual
         log.other_capacity = oth_cap
         log.other_actual = payload.other_actual
+
+        log.wet_waste_processed_mt = wet_proc_val
         log.compost_output_mt = payload.compost_output_mt
-        log.recyclable_sold_mt = payload.recyclable_sold_mt
-        log.dry_waste_cement_mt = payload.dry_waste_cement_mt
-        log.dump_yard_mt = payload.dump_yard_mt
+        log.manure_sold_free_mt = payload.manure_sold_free_mt
+
+        log.recyclable_sold_mt = recyc_sold
+        log.recyclable_sent_to_recyclers_mt = recyc_sent
+        log.dry_waste_cement_mt = dry_cement
+
+        log.sanitary_waste_incineration_capacity_mt = san_cap
+        log.sanitary_waste_incinerated_today_mt = san_incin
+        log.special_waste_processed_mt = spec_proc
+
+        log.total_dry_waste_processed_mt = tot_dry_proc
+        log.total_processed_waste_mt = tot_proc
+        log.dump_yard_mt = dump_yard_val
+        log.processed_waste_pct = proc_pct
         log.data_quality_flag = quality_flag
         log.submitted_by_id = current_user.id
         log.updated_at = datetime.utcnow()
@@ -672,7 +799,10 @@ def create_or_update_log(
             door_to_door_hhs=d2d_hh,
             segregated_hh_collected=seg_hh,
             collection_pct=collection_pct,
-            total_generation_today_mt=payload.total_generation_today_mt,
+            total_generation_today_mt=gen_today,
+            wet_waste_generation_mt=payload.wet_waste_generation_mt,
+            dry_waste_generation_mt=payload.dry_waste_generation_mt,
+
             mcc_capacity=mcc_cap_val,
             mcc_actual=mcc_act_val,
             mrf_capacity=mrf_cap_val,
@@ -681,10 +811,23 @@ def create_or_update_log(
             biometh_actual=payload.biometh_actual,
             other_capacity=oth_cap,
             other_actual=payload.other_actual,
+
+            wet_waste_processed_mt=wet_proc_val,
             compost_output_mt=payload.compost_output_mt,
-            recyclable_sold_mt=payload.recyclable_sold_mt,
-            dry_waste_cement_mt=payload.dry_waste_cement_mt,
-            dump_yard_mt=payload.dump_yard_mt,
+            manure_sold_free_mt=payload.manure_sold_free_mt,
+
+            recyclable_sold_mt=recyc_sold,
+            recyclable_sent_to_recyclers_mt=recyc_sent,
+            dry_waste_cement_mt=dry_cement,
+
+            sanitary_waste_incineration_capacity_mt=san_cap,
+            sanitary_waste_incinerated_today_mt=san_incin,
+            special_waste_processed_mt=spec_proc,
+
+            total_dry_waste_processed_mt=tot_dry_proc,
+            total_processed_waste_mt=tot_proc,
+            dump_yard_mt=dump_yard_val,
+            processed_waste_pct=proc_pct,
             data_quality_flag=quality_flag,
             submitted_by_id=current_user.id
         )
@@ -725,13 +868,25 @@ def get_daily_logs(
     for u in ulbs:
         l = log_map.get(u.id)
         if l:
-            wet_proc = l.mcc_actual + l.biometh_actual
-            dry_proc = l.mrf_actual + (l.recyclable_sold_mt or 0.0) + (l.dry_waste_cement_mt or 0.0) + l.other_actual
-            proc = wet_proc + dry_proc
-            tot_w = proc + l.dump_yard_mt
-            div_rate = round((proc / tot_w) * 100, 2) if tot_w > 0 else 0.0
-            seg_hh = l.segregated_hh_collected or l.door_to_door_hhs
+            seg_hh = l.segregated_hh_collected if (l.segregated_hh_collected is not None and l.segregated_hh_collected > 0) else (l.door_to_door_hhs or 0)
             seg_pct = round((seg_hh / l.total_households) * 100, 2) if l.total_households > 0 else 0.0
+
+            wet_proc = l.wet_waste_processed_mt if (l.wet_waste_processed_mt is not None and l.wet_waste_processed_mt > 0) else round((l.mcc_actual or 0.0) + (l.biometh_actual or 0.0), 2)
+            recyc_sold = l.recyclable_sold_mt or 0.0
+            recyc_sent = l.recyclable_sent_to_recyclers_mt or 0.0
+            dry_cement = l.dry_waste_cement_mt or 0.0
+            dry_proc = l.total_dry_waste_processed_mt if (l.total_dry_waste_processed_mt is not None and l.total_dry_waste_processed_mt > 0) else round(recyc_sold + recyc_sent + dry_cement, 2)
+            
+            san_cap = l.sanitary_waste_incineration_capacity_mt or 0.0
+            san_incin = l.sanitary_waste_incinerated_today_mt or 0.0
+            spec_proc = l.special_waste_processed_mt or 0.0
+
+            tot_proc = l.total_processed_waste_mt if (l.total_processed_waste_mt is not None and l.total_processed_waste_mt > 0) else round(wet_proc + san_incin + spec_proc + dry_proc, 2)
+            gen_today = l.total_generation_today_mt or 0.0
+            dump_yard = l.dump_yard_mt if l.dump_yard_mt is not None else round(gen_today - tot_proc, 2)
+            proc_pct = l.processed_waste_pct if (l.processed_waste_pct is not None and l.processed_waste_pct > 0) else (round((tot_proc / gen_today) * 100, 2) if gen_today > 0 else 0.0)
+
+            flag, _ = compute_data_quality_flag(l.total_households, seg_hh, gen_today, tot_proc)
             
             results.append({
                 "ulb_id": u.id,
@@ -746,26 +901,35 @@ def get_daily_logs(
                 "segregated_hh_collected": seg_hh,
                 "collection_pct": l.collection_pct,
                 "segregation_pct": seg_pct,
-                "total_generation_today_mt": l.total_generation_today_mt or 0.0,
+                "total_generation_today_mt": gen_today,
+                "wet_waste_generation_mt": l.wet_waste_generation_mt or 0.0,
+                "dry_waste_generation_mt": l.dry_waste_generation_mt or 0.0,
                 "mcc_capacity": l.mcc_capacity,
                 "mcc_actual": l.mcc_actual,
                 "biometh_capacity": l.biometh_capacity,
                 "biometh_actual": l.biometh_actual,
                 "wet_waste_processed_mt": round(wet_proc, 2),
                 "compost_output_mt": l.compost_output_mt or 0.0,
+                "manure_sold_free_mt": l.manure_sold_free_mt or 0.0,
                 "mrf_capacity": l.mrf_capacity,
                 "mrf_actual": l.mrf_actual,
                 "other_capacity": l.other_capacity,
                 "other_actual": l.other_actual,
                 "dry_facilities_capacity_mt": round(l.mrf_capacity + l.other_capacity, 2),
-                "recyclable_sold_mt": l.recyclable_sold_mt or 0.0,
-                "dry_waste_cement_mt": l.dry_waste_cement_mt or 0.0,
-                "dump_yard_mt": l.dump_yard_mt,
-                "total_processed_mt": round(proc, 2),
-                "total_waste_handled_mt": round(tot_w, 2),
-                "diversion_rate_pct": div_rate,
-                "processed_waste_pct": div_rate,
-                "data_quality_flag": "Segregated HH>Total HH" if (seg_hh > l.total_households) else (l.data_quality_flag or "OK")
+                "recyclable_sold_mt": recyc_sold,
+                "recyclable_sent_to_recyclers_mt": recyc_sent,
+                "dry_waste_cement_mt": dry_cement,
+                "sanitary_waste_incineration_capacity_mt": san_cap,
+                "sanitary_waste_incinerated_today_mt": san_incin,
+                "special_waste_processed_mt": spec_proc,
+                "total_dry_waste_processed_mt": round(dry_proc, 2),
+                "total_processed_waste_mt": round(tot_proc, 2),
+                "dump_yard_mt": round(dump_yard, 2),
+                "total_processed_mt": round(tot_proc, 2),
+                "total_waste_handled_mt": round(tot_proc + (dump_yard if dump_yard > 0 else 0.0), 2),
+                "diversion_rate_pct": round(proc_pct, 2),
+                "processed_waste_pct": round(proc_pct, 2),
+                "data_quality_flag": flag
             })
         else:
             results.append({
@@ -782,19 +946,28 @@ def get_daily_logs(
                 "collection_pct": 0.0,
                 "segregation_pct": 0.0,
                 "total_generation_today_mt": 0.0,
+                "wet_waste_generation_mt": 0.0,
+                "dry_waste_generation_mt": 0.0,
                 "mcc_capacity": u.default_mcc_capacity,
                 "mcc_actual": 0.0,
                 "biometh_capacity": u.default_biometh_capacity,
                 "biometh_actual": 0.0,
                 "wet_waste_processed_mt": 0.0,
                 "compost_output_mt": 0.0,
+                "manure_sold_free_mt": 0.0,
                 "mrf_capacity": u.default_mrf_capacity,
                 "mrf_actual": 0.0,
                 "other_capacity": u.default_other_capacity,
                 "other_actual": 0.0,
                 "dry_facilities_capacity_mt": round(u.default_mrf_capacity + u.default_other_capacity, 2),
                 "recyclable_sold_mt": 0.0,
+                "recyclable_sent_to_recyclers_mt": 0.0,
                 "dry_waste_cement_mt": 0.0,
+                "sanitary_waste_incineration_capacity_mt": 0.0,
+                "sanitary_waste_incinerated_today_mt": 0.0,
+                "special_waste_processed_mt": 0.0,
+                "total_dry_waste_processed_mt": 0.0,
+                "total_processed_waste_mt": 0.0,
                 "dump_yard_mt": 0.0,
                 "total_processed_mt": 0.0,
                 "total_waste_handled_mt": 0.0,
@@ -823,53 +996,7 @@ def get_ulb_history(
         DailyWasteLog.ulb_id == ulb_id
     ).order_by(DailyWasteLog.log_date.desc()).limit(limit).all()
 
-    resp = []
-    for l in logs:
-        wet_proc = l.mcc_actual + l.biometh_actual
-        dry_proc = l.mrf_actual + (l.recyclable_sold_mt or 0.0) + (l.dry_waste_cement_mt or 0.0) + l.other_actual
-        proc = wet_proc + dry_proc
-        tot_w = proc + l.dump_yard_mt
-        div_rate = round((proc / tot_w) * 100, 2) if tot_w > 0 else 0.0
-        tot_cap = l.mcc_capacity + l.mrf_capacity + l.biometh_capacity + l.other_capacity
-        seg_hh = l.segregated_hh_collected or l.door_to_door_hhs
-        seg_pct = round((seg_hh / l.total_households) * 100, 2) if l.total_households > 0 else 0.0
-
-        resp.append(DailyLogResponse(
-            id=l.id,
-            ulb_id=l.ulb_id,
-            ulb_name=ulb.name,
-            ulb_region=ulb.region,
-            ulb_s_no=ulb.s_no,
-            log_date=l.log_date,
-            total_households=l.total_households,
-            door_to_door_hhs=l.door_to_door_hhs,
-            segregated_hh_collected=seg_hh,
-            collection_pct=l.collection_pct,
-            segregation_pct=seg_pct,
-            total_generation_today_mt=l.total_generation_today_mt or 0.0,
-            mcc_capacity=l.mcc_capacity,
-            mcc_actual=l.mcc_actual,
-            biometh_capacity=l.biometh_capacity,
-            biometh_actual=l.biometh_actual,
-            wet_waste_processed_mt=round(wet_proc, 2),
-            compost_output_mt=l.compost_output_mt or 0.0,
-            mrf_capacity=l.mrf_capacity,
-            mrf_actual=l.mrf_actual,
-            other_capacity=l.other_capacity,
-            other_actual=l.other_actual,
-            dry_facilities_capacity_mt=round(l.mrf_capacity + l.other_capacity, 2),
-            recyclable_sold_mt=l.recyclable_sold_mt or 0.0,
-            dry_waste_cement_mt=l.dry_waste_cement_mt or 0.0,
-            dump_yard_mt=l.dump_yard_mt,
-            total_processed_mt=round(proc, 2),
-            total_capacity_mt=round(tot_cap, 2),
-            total_waste_handled_mt=round(tot_w, 2),
-            diversion_rate_pct=div_rate,
-            processed_waste_pct=div_rate,
-            data_quality_flag="Segregated HH>Total HH" if (seg_hh > l.total_households) else (l.data_quality_flag or "OK"),
-            created_at=l.created_at,
-            updated_at=l.updated_at
-        ))
+    resp = [build_daily_log_response(l, ulb, db) for l in logs]
     return resp
 
 # ----------------- DASHBOARD & COMPLIANCE -----------------
@@ -915,6 +1042,8 @@ def get_dashboard_summary(
     avg_seg = round((tot_seg_hh / tot_hh) * 100, 2) if tot_hh > 0 else 0.0
 
     tot_gen_mt = sum((l.total_generation_today_mt or 0.0) for l in logs)
+    wet_gen_mt = sum((l.wet_waste_generation_mt or 0.0) for l in logs)
+    dry_gen_mt = sum((l.dry_waste_generation_mt or 0.0) for l in logs)
 
     mcc_cap = sum(l.mcc_capacity for l in logs)
     mcc_act = sum(l.mcc_actual for l in logs)
@@ -928,18 +1057,28 @@ def get_dashboard_summary(
     oth_cap = sum(l.other_capacity for l in logs)
     oth_act = sum(l.other_actual for l in logs)
 
+    wet_proc_tot = sum((l.wet_waste_processed_mt or (l.mcc_actual + l.biometh_actual) or 0.0) for l in logs)
     compost_tot = sum((l.compost_output_mt or 0.0) for l in logs)
-    recyc_tot = sum((l.recyclable_sold_mt or 0.0) for l in logs)
+    manure_tot = sum((l.manure_sold_free_mt or 0.0) for l in logs)
+
+    recyc_sold_tot = sum((l.recyclable_sold_mt or 0.0) for l in logs)
+    recyc_sent_tot = sum((l.recyclable_sent_to_recyclers_mt or 0.0) for l in logs)
     cement_tot = sum((l.dry_waste_cement_mt or 0.0) for l in logs)
+    tot_dry_proc = sum((l.total_dry_waste_processed_mt or ((l.recyclable_sold_mt or 0.0) + (l.recyclable_sent_to_recyclers_mt or 0.0) + (l.dry_waste_cement_mt or 0.0))) for l in logs)
+
+    sanitary_incin_tot = sum((l.sanitary_waste_incinerated_today_mt or 0.0) for l in logs)
+    special_proc_tot = sum((l.special_waste_processed_mt or 0.0) for l in logs)
+
+    tot_proc_waste = sum((l.total_processed_waste_mt or (l.wet_waste_processed_mt or (l.mcc_actual + l.biometh_actual) or 0.0) + (l.sanitary_waste_incinerated_today_mt or 0.0) + (l.special_waste_processed_mt or 0.0) + (l.total_dry_waste_processed_mt or ((l.recyclable_sold_mt or 0.0) + (l.recyclable_sent_to_recyclers_mt or 0.0) + (l.dry_waste_cement_mt or 0.0)))) for l in logs)
 
     dump_tot = sum(l.dump_yard_mt for l in logs)
 
     tot_proc_cap = mcc_cap + mrf_cap + bio_cap + oth_cap
-    tot_proc = mcc_act + bio_act + mrf_act + recyc_tot + cement_tot + oth_act
-    tot_waste = tot_proc + dump_tot
+    tot_waste = tot_gen_mt if tot_gen_mt > 0 else (tot_proc_waste + dump_tot)
 
-    div_rate = round((tot_proc / tot_waste) * 100, 2) if tot_waste > 0 else 0.0
-    cap_util = round((tot_proc / tot_proc_cap) * 100, 2) if tot_proc_cap > 0 else 0.0
+    div_rate = round((tot_proc_waste / tot_waste) * 100, 2) if tot_waste > 0 else 0.0
+    cap_util = round((tot_proc_waste / tot_proc_cap) * 100, 2) if tot_proc_cap > 0 else 0.0
+    avg_proc_pct = round((tot_proc_waste / tot_gen_mt) * 100, 2) if tot_gen_mt > 0 else 0.0
 
     return DashboardKPIs(
         target_date=target_date,
@@ -953,23 +1092,33 @@ def get_dashboard_summary(
         total_segregated_hhs=tot_seg_hh,
         avg_segregation_pct=avg_seg,
         total_generation_today_mt=round(tot_gen_mt, 2),
+        wet_waste_generation_total=round(wet_gen_mt, 2),
+        dry_waste_generation_total=round(dry_gen_mt, 2),
         mcc_capacity_total=round(mcc_cap, 2),
         mcc_actual_total=round(mcc_act, 2),
-        mrf_capacity_total=round(mrf_cap, 2),
-        mrf_actual_total=round(mrf_act, 2),
         biometh_capacity_total=round(bio_cap, 2),
         biometh_actual_total=round(bio_act, 2),
         other_capacity_total=round(oth_cap, 2),
         other_actual_total=round(oth_act, 2),
+        wet_waste_processed_total=round(wet_proc_tot, 2),
         compost_output_mt_total=round(compost_tot, 2),
-        recyclable_sold_mt_total=round(recyc_tot, 2),
+        manure_sold_free_total=round(manure_tot, 2),
+        mrf_capacity_total=round(mrf_cap, 2),
+        mrf_actual_total=round(mrf_act, 2),
+        recyclable_sold_mt_total=round(recyc_sold_tot, 2),
+        recyclable_sent_to_recyclers_total=round(recyc_sent_tot, 2),
         dry_waste_cement_mt_total=round(cement_tot, 2),
+        total_dry_waste_processed_total=round(tot_dry_proc, 2),
+        sanitary_waste_incinerated_total=round(sanitary_incin_tot, 2),
+        special_waste_processed_total=round(special_proc_tot, 2),
         total_processing_capacity_mt=round(tot_proc_cap, 2),
-        total_processed_mt=round(tot_proc, 2),
+        total_processed_mt=round(tot_proc_waste, 2),
+        total_processed_waste_total=round(tot_proc_waste, 2),
         dump_yard_mt_total=round(dump_tot, 2),
         total_waste_handled_mt=round(tot_waste, 2),
         landfill_diversion_rate_pct=div_rate,
-        capacity_utilization_pct=cap_util
+        capacity_utilization_pct=cap_util,
+        avg_processed_waste_pct=avg_proc_pct
     )
 
 @app.get("/api/dashboard/compliance", response_model=ComplianceSummary)
@@ -1039,62 +1188,71 @@ def export_daily_excel(
 
         l = log_map.get(u.id)
         if l:
-            wet_proc = l.mcc_actual + l.biometh_actual
-            dry_proc = l.mrf_actual + (l.recyclable_sold_mt or 0.0) + (l.dry_waste_cement_mt or 0.0) + l.other_actual
-            proc = wet_proc + dry_proc
-            tot_w = proc + l.dump_yard_mt
-            div_rate = round((proc / tot_w) * 100, 2) if tot_w > 0 else 0.0
-            seg_hh = l.segregated_hh_collected or l.door_to_door_hhs
+            seg_hh = l.segregated_hh_collected if (l.segregated_hh_collected is not None and l.segregated_hh_collected > 0) else (l.door_to_door_hhs or 0)
+            wet_proc = l.wet_waste_processed_mt if (l.wet_waste_processed_mt is not None and l.wet_waste_processed_mt > 0) else round((l.mcc_actual or 0.0) + (l.biometh_actual or 0.0), 2)
+            recyc_sold = l.recyclable_sold_mt or 0.0
+            recyc_sent = l.recyclable_sent_to_recyclers_mt or 0.0
+            dry_cement = l.dry_waste_cement_mt or 0.0
+            dry_proc = l.total_dry_waste_processed_mt if (l.total_dry_waste_processed_mt is not None and l.total_dry_waste_processed_mt > 0) else round(recyc_sold + recyc_sent + dry_cement, 2)
+            
+            san_cap = l.sanitary_waste_incineration_capacity_mt or 0.0
+            san_incin = l.sanitary_waste_incinerated_today_mt or 0.0
+            spec_proc = l.special_waste_processed_mt or 0.0
+
+            tot_proc = l.total_processed_waste_mt if (l.total_processed_waste_mt is not None and l.total_processed_waste_mt > 0) else round(wet_proc + san_incin + spec_proc + dry_proc, 2)
+            gen_today = l.total_generation_today_mt or 0.0
+            dump_yard = l.dump_yard_mt if l.dump_yard_mt is not None else round(gen_today - tot_proc, 2)
+            proc_pct = l.processed_waste_pct if (l.processed_waste_pct is not None and l.processed_waste_pct > 0) else (round((tot_proc / gen_today) * 100, 2) if gen_today > 0 else 0.0)
+
+            flag, _ = compute_data_quality_flag(l.total_households, seg_hh, gen_today, tot_proc)
 
             grouped_data[reg].append({
+                "log_date": l.log_date,
                 "s_no": u.s_no,
+                "region": reg,
                 "name": u.name,
                 "total_households": l.total_households,
-                "door_to_door_hhs": l.door_to_door_hhs,
                 "segregated_hh_collected": seg_hh,
-                "collection_pct": l.collection_pct,
-                "total_generation_today_mt": l.total_generation_today_mt or 0.0,
-                "mcc_capacity": l.mcc_capacity,
-                "mcc_actual": l.mcc_actual,
-                "biometh_capacity": l.biometh_capacity,
-                "biometh_actual": l.biometh_actual,
+                "total_generation_today_mt": gen_today,
+                "wet_waste_generation_mt": l.wet_waste_generation_mt or 0.0,
+                "dry_waste_generation_mt": l.dry_waste_generation_mt or 0.0,
                 "wet_waste_processed_mt": round(wet_proc, 2),
                 "compost_output_mt": l.compost_output_mt or 0.0,
-                "mrf_capacity": l.mrf_capacity,
-                "mrf_actual": l.mrf_actual,
-                "other_capacity": l.other_capacity,
-                "other_actual": l.other_actual,
-                "dry_facilities_capacity_mt": round(l.mrf_capacity + l.other_capacity, 2),
-                "recyclable_sold_mt": l.recyclable_sold_mt or 0.0,
-                "dry_waste_cement_mt": l.dry_waste_cement_mt or 0.0,
-                "total_processed_mt": round(proc, 2),
-                "dump_yard_mt": l.dump_yard_mt,
-                "processed_waste_pct": div_rate,
-                "data_quality_flag": "Segregated HH>Total HH" if (seg_hh > l.total_households) else "OK"
+                "manure_sold_free_mt": l.manure_sold_free_mt or 0.0,
+                "recyclable_sold_mt": recyc_sold,
+                "recyclable_sent_to_recyclers_mt": recyc_sent,
+                "dry_waste_cement_mt": dry_cement,
+                "sanitary_waste_incineration_capacity_mt": san_cap,
+                "sanitary_waste_incinerated_today_mt": san_incin,
+                "special_waste_processed_mt": spec_proc,
+                "total_dry_waste_processed_mt": round(dry_proc, 2),
+                "total_processed_waste_mt": round(tot_proc, 2),
+                "dump_yard_mt": round(dump_yard, 2),
+                "processed_waste_pct": round(proc_pct, 2),
+                "data_quality_flag": flag
             })
         else:
             grouped_data[reg].append({
+                "log_date": target_date,
                 "s_no": u.s_no,
+                "region": reg,
                 "name": u.name,
                 "total_households": u.households,
-                "door_to_door_hhs": 0,
                 "segregated_hh_collected": 0,
-                "collection_pct": 0.0,
                 "total_generation_today_mt": 0.0,
-                "mcc_capacity": u.default_mcc_capacity,
-                "mcc_actual": 0.0,
-                "biometh_capacity": u.default_biometh_capacity,
-                "biometh_actual": 0.0,
+                "wet_waste_generation_mt": 0.0,
+                "dry_waste_generation_mt": 0.0,
                 "wet_waste_processed_mt": 0.0,
                 "compost_output_mt": 0.0,
-                "mrf_capacity": u.default_mrf_capacity,
-                "mrf_actual": 0.0,
-                "other_capacity": u.default_other_capacity,
-                "other_actual": 0.0,
-                "dry_facilities_capacity_mt": round(u.default_mrf_capacity + u.default_other_capacity, 2),
+                "manure_sold_free_mt": 0.0,
                 "recyclable_sold_mt": 0.0,
+                "recyclable_sent_to_recyclers_mt": 0.0,
                 "dry_waste_cement_mt": 0.0,
-                "total_processed_mt": 0.0,
+                "sanitary_waste_incineration_capacity_mt": 0.0,
+                "sanitary_waste_incinerated_today_mt": 0.0,
+                "special_waste_processed_mt": 0.0,
+                "total_dry_waste_processed_mt": 0.0,
+                "total_processed_waste_mt": 0.0,
                 "dump_yard_mt": 0.0,
                 "processed_waste_pct": 0.0,
                 "data_quality_flag": "PENDING"
@@ -1139,31 +1297,45 @@ def export_monthly_excel(
         if days_rep > 0:
             avg_seg = round(sum((l.segregated_hh_collected or l.door_to_door_hhs or 0) for l in logs) / days_rep)
             tot_gen = round(sum(l.total_generation_today_mt or 0.0 for l in logs), 2)
-            tot_wet = round(sum((l.mcc_actual + l.biometh_actual) for l in logs), 2)
+            tot_wet_gen = round(sum(l.wet_waste_generation_mt or 0.0 for l in logs), 2)
+            tot_dry_gen = round(sum(l.dry_waste_generation_mt or 0.0 for l in logs), 2)
+            tot_wet_proc = round(sum((l.wet_waste_processed_mt or (l.mcc_actual + l.biometh_actual) or 0.0) for l in logs), 2)
             tot_comp = round(sum(l.compost_output_mt or 0.0 for l in logs), 2)
-            dry_cap = round(u.default_mrf_capacity + u.default_other_capacity, 2)
+            tot_manure = round(sum(l.manure_sold_free_mt or 0.0 for l in logs), 2)
             tot_recyc = round(sum(l.recyclable_sold_mt or 0.0 for l in logs), 2)
+            tot_recyc_sent = round(sum(l.recyclable_sent_to_recyclers_mt or 0.0 for l in logs), 2)
             tot_cement = round(sum(l.dry_waste_cement_mt or 0.0 for l in logs), 2)
-            tot_dump = round(sum(l.dump_yard_mt for l in logs), 2)
-            tot_proc = round(tot_wet + tot_recyc + tot_cement, 2)
-            tot_waste = tot_proc + tot_dump
-            div_rate = round((tot_proc / tot_waste) * 100, 2) if tot_waste > 0 else 0.0
-            flag = "Segregated HH>Total HH" if (avg_seg > u.households) else "OK"
+            tot_san_cap = round(sum(l.sanitary_waste_incineration_capacity_mt or 0.0 for l in logs) / days_rep, 2)
+            tot_san_incin = round(sum(l.sanitary_waste_incinerated_today_mt or 0.0 for l in logs), 2)
+            tot_spec = round(sum(l.special_waste_processed_mt or 0.0 for l in logs), 2)
+
+            tot_dry_proc = round(tot_recyc + tot_recyc_sent + tot_cement, 2)
+            tot_proc = round(tot_wet_proc + tot_san_incin + tot_spec + tot_dry_proc, 2)
+            tot_dump = round(sum(l.dump_yard_mt or 0.0 for l in logs), 2)
+            div_rate = round((tot_proc / tot_gen) * 100, 2) if tot_gen > 0 else 0.0
+            flag, _ = compute_data_quality_flag(u.households, avg_seg, tot_gen, tot_proc)
 
             grouped_data[reg].append({
+                "log_date": f"{month:02d}/{year}",
                 "s_no": u.s_no,
+                "region": reg,
                 "name": u.name,
                 "total_households": u.households,
-                "door_to_door_hhs": avg_seg,
                 "segregated_hh_collected": avg_seg,
-                "collection_pct": round((avg_seg / u.households * 100), 2) if u.households > 0 else 0.0,
                 "total_generation_today_mt": tot_gen,
-                "wet_waste_processed_mt": tot_wet,
+                "wet_waste_generation_mt": tot_wet_gen,
+                "dry_waste_generation_mt": tot_dry_gen,
+                "wet_waste_processed_mt": tot_wet_proc,
                 "compost_output_mt": tot_comp,
-                "dry_facilities_capacity_mt": dry_cap,
+                "manure_sold_free_mt": tot_manure,
                 "recyclable_sold_mt": tot_recyc,
+                "recyclable_sent_to_recyclers_mt": tot_recyc_sent,
                 "dry_waste_cement_mt": tot_cement,
-                "total_processed_mt": tot_proc,
+                "sanitary_waste_incineration_capacity_mt": tot_san_cap,
+                "sanitary_waste_incinerated_today_mt": tot_san_incin,
+                "special_waste_processed_mt": tot_spec,
+                "total_dry_waste_processed_mt": tot_dry_proc,
+                "total_processed_waste_mt": tot_proc,
                 "dump_yard_mt": tot_dump,
                 "processed_waste_pct": div_rate,
                 "data_quality_flag": flag,
@@ -1171,19 +1343,26 @@ def export_monthly_excel(
             })
         else:
             grouped_data[reg].append({
+                "log_date": f"{month:02d}/{year}",
                 "s_no": u.s_no,
+                "region": reg,
                 "name": u.name,
                 "total_households": u.households,
-                "door_to_door_hhs": 0,
                 "segregated_hh_collected": 0,
-                "collection_pct": 0.0,
                 "total_generation_today_mt": 0.0,
+                "wet_waste_generation_mt": 0.0,
+                "dry_waste_generation_mt": 0.0,
                 "wet_waste_processed_mt": 0.0,
                 "compost_output_mt": 0.0,
-                "dry_facilities_capacity_mt": round(u.default_mrf_capacity + u.default_other_capacity, 2),
+                "manure_sold_free_mt": 0.0,
                 "recyclable_sold_mt": 0.0,
+                "recyclable_sent_to_recyclers_mt": 0.0,
                 "dry_waste_cement_mt": 0.0,
-                "total_processed_mt": 0.0,
+                "sanitary_waste_incineration_capacity_mt": 0.0,
+                "sanitary_waste_incinerated_today_mt": 0.0,
+                "special_waste_processed_mt": 0.0,
+                "total_dry_waste_processed_mt": 0.0,
+                "total_processed_waste_mt": 0.0,
                 "dump_yard_mt": 0.0,
                 "processed_waste_pct": 0.0,
                 "data_quality_flag": "PENDING",

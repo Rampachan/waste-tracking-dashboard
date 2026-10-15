@@ -45,42 +45,59 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
   });
 
   // Calculate Subtotals for a group
+  // Calculate Subtotals for a group matching 23-column schema
   const calcSubtotal = (items) => {
     const totHH = items.reduce((acc, curr) => acc + (curr.total_households || 0), 0);
     const segHH = items.reduce((acc, curr) => acc + (curr.segregated_hh_collected || curr.door_to_door_hhs || 0), 0);
     const avgSegPct = totHH > 0 ? ((segHH / totHH) * 100).toFixed(1) : '0.0';
 
     const genMT = items.reduce((acc, curr) => acc + (curr.total_generation_today_mt || 0), 0);
+    const wetGenMT = items.reduce((acc, curr) => acc + (curr.wet_waste_generation_mt || 0), 0);
+    const dryGenMT = items.reduce((acc, curr) => acc + (curr.dry_waste_generation_mt || 0), 0);
 
     const wetProc = items.reduce((acc, curr) => acc + (curr.wet_waste_processed_mt || (curr.mcc_actual + curr.biometh_actual) || 0), 0);
     const compostMT = items.reduce((acc, curr) => acc + (curr.compost_output_mt || 0), 0);
+    const manureMT = items.reduce((acc, curr) => acc + (curr.manure_sold_free_mt || 0), 0);
 
-    const dryCap = items.reduce((acc, curr) => acc + (curr.dry_facilities_capacity_mt || (curr.mrf_capacity + curr.other_capacity) || 0), 0);
-    const recycMT = items.reduce((acc, curr) => acc + (curr.recyclable_sold_mt || 0), 0);
+    const recycSoldMT = items.reduce((acc, curr) => acc + (curr.recyclable_sold_mt || 0), 0);
+    const recycSentMT = items.reduce((acc, curr) => acc + (curr.recyclable_sent_to_recyclers_mt || 0), 0);
     const cementMT = items.reduce((acc, curr) => acc + (curr.dry_waste_cement_mt || 0), 0);
 
-    const procMT = items.reduce((acc, curr) => acc + (curr.total_processed_mt || 0), 0);
-    const dumpMT = items.reduce((acc, curr) => acc + (curr.dump_yard_mt || 0), 0);
-    const totWaste = procMT + dumpMT;
-    const avgProcPct = totWaste > 0 ? ((procMT / totWaste) * 100).toFixed(1) : '0.0';
+    const sanCapMT = items.reduce((acc, curr) => acc + (curr.sanitary_waste_incineration_capacity_mt || 0), 0);
+    const sanIncinMT = items.reduce((acc, curr) => acc + (curr.sanitary_waste_incinerated_today_mt || 0), 0);
+    const specProcMT = items.reduce((acc, curr) => acc + (curr.special_waste_processed_mt || 0), 0);
+
+    const totDryProcMT = recycSoldMT + recycSentMT + cementMT;
+    const totProcMT = wetProc + sanIncinMT + specProcMT + totDryProcMT;
+    const dumpMT = genMT - totProcMT;
+    const avgProcPct = genMT > 0 ? ((totProcMT / genMT) * 100).toFixed(1) : '0.0';
 
     return {
       totHH, segHH, avgSegPct,
-      genMT,
-      wetProc, compostMT,
-      dryCap, recycMT, cementMT,
-      procMT, dumpMT, avgProcPct
+      genMT, wetGenMT, dryGenMT,
+      wetProc, compostMT, manureMT,
+      recycSoldMT, recycSentMT, cementMT,
+      sanCapMT, sanIncinMT, specProcMT,
+      totDryProcMT, totProcMT, dumpMT, avgProcPct
     };
   };
 
   const grandTotal = calcSubtotal(filteredLogs);
 
-  const getFlagBadge = (flag, segHH, totHH) => {
-    const isExceeded = (totHH > 0 && segHH > totHH) || flag === 'Segregated HH>Total HH' || flag === 'CRITICAL';
-    if (isExceeded) {
+  const getFlagBadge = (flag, segHH, totHH, procMT, genMT) => {
+    const isSegExceeded = (totHH > 0 && segHH > totHH) || flag === 'Segregated HH>Total HH';
+    const isProcExceeded = (genMT > 0 && procMT > genMT) || flag === 'Processed>Generation';
+    if (isSegExceeded) {
       return (
         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
           Segregated HH&gt;Total HH
+        </span>
+      );
+    }
+    if (isProcExceeded) {
+      return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+          Processed&gt;Generation
         </span>
       );
     }
@@ -197,20 +214,20 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
                     {/* Subtotal Ribbon */}
                     <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-2.5 text-xs grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <div>
-                        <span className="text-[10px] text-amber-800">Segregated HHs:</span>
+                        <span className="text-[10px] text-amber-800">Segregated HHs (Col 6):</span>
                         <strong className="block font-mono text-amber-950">{subtotal.segHH.toLocaleString()} ({subtotal.avgSegPct}%)</strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-amber-800">Gen Today MT:</span>
-                        <strong className="block font-mono text-amber-950">{subtotal.genMT.toFixed(1)} MT</strong>
+                        <span className="text-[10px] text-amber-800">Waste Gen MT (Cols 7-9):</span>
+                        <strong className="block font-mono text-amber-950">{subtotal.genMT.toFixed(1)} MT <span className="text-[10px] font-normal text-amber-700">(Wet: {subtotal.wetGenMT.toFixed(1)}, Dry: {subtotal.dryGenMT.toFixed(1)})</span></strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-amber-800">Wet Proc / Compost:</span>
-                        <strong className="block font-mono text-emerald-800">{subtotal.wetProc.toFixed(1)} / {subtotal.compostMT.toFixed(1)} MT</strong>
+                        <span className="text-[10px] text-amber-800">Wet Proc / Compost / Manure:</span>
+                        <strong className="block font-mono text-emerald-800">{subtotal.wetProc.toFixed(1)} / {subtotal.compostMT.toFixed(1)} / {subtotal.manureMT.toFixed(1)} MT</strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-amber-800">Processed / Dump:</span>
-                        <strong className="block font-mono text-indigo-900">{subtotal.procMT.toFixed(1)} / {subtotal.dumpMT.toFixed(1)} MT</strong>
+                        <span className="text-[10px] text-amber-800">Total Processed / Dump:</span>
+                        <strong className="block font-mono text-indigo-900">{subtotal.totProcMT.toFixed(1)} / {subtotal.dumpMT.toFixed(1)} MT ({subtotal.avgProcPct}%)</strong>
                       </div>
                     </div>
 
@@ -225,9 +242,10 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
                             <div className="font-bold text-slate-900 flex items-center gap-1.5">
                               <span className="text-[10px] text-slate-400 font-mono">#{row.s_no}</span>
                               <span className="text-sm">{row.name}</span>
+                              <span className="text-[10px] text-slate-400 font-normal">({row.region})</span>
                             </div>
                             <div className="flex items-center gap-1">
-                              {getFlagBadge(row.data_quality_flag, row.segregated_hh_collected || row.door_to_door_hhs, row.total_households)}
+                              {getFlagBadge(row.data_quality_flag, row.segregated_hh_collected, row.total_households, row.total_processed_waste_mt ?? row.total_processed_mt, row.total_generation_today_mt)}
                               {row.is_submitted ? (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
                                   <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> Done
@@ -243,68 +261,104 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
                           {/* Segregation Progress Bar */}
                           <div>
                             <div className="flex justify-between text-[11px] mb-1">
-                              <span className="text-slate-500">Source Segregation:</span>
-                              <span className="font-bold font-mono text-emerald-700">{row.segregation_pct ?? row.collection_pct}%</span>
+                              <span className="text-slate-500">Source Segregation (Col 6 / Col 5):</span>
+                              <span className="font-bold font-mono text-emerald-700">{row.segregation_pct ?? (row.total_households > 0 ? ((row.segregated_hh_collected / row.total_households) * 100).toFixed(1) : 0)}%</span>
                             </div>
                             <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
                               <div
                                 className={`h-1.5 rounded-full ${
-                                  (row.segregation_pct || row.collection_pct) >= 90 ? 'bg-emerald-500' : (row.segregation_pct || row.collection_pct) >= 70 ? 'bg-amber-500' : 'bg-rose-500'
+                                  (row.segregation_pct || 0) >= 90 ? 'bg-emerald-500' : (row.segregation_pct || 0) >= 70 ? 'bg-amber-500' : 'bg-rose-500'
                                 }`}
-                                style={{ width: `${Math.min(row.segregation_pct || row.collection_pct, 100)}%` }}
+                                style={{ width: `${Math.min(row.segregation_pct || 0, 100)}%` }}
                               ></div>
                             </div>
                             <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-mono">
-                              <span>{(row.segregated_hh_collected || row.door_to_door_hhs || 0).toLocaleString()} segregated</span>
+                              <span>{(row.segregated_hh_collected || 0).toLocaleString()} segregated</span>
                               <span>{(row.total_households || 0).toLocaleString()} HHs</span>
                             </div>
                           </div>
 
-                          {/* Generation & Wet Waste Strip */}
+                          {/* Waste Generation Strip (Cols 7, 8, 9) */}
                           <div className="grid grid-cols-3 gap-1.5 text-center text-[10px] pt-1">
                             <div className="bg-slate-50 p-1.5 rounded border border-slate-100">
-                              <div className="text-[9px] text-slate-400">Gen Today</div>
+                              <div className="text-[9px] text-slate-400">Total Gen (7)</div>
                               <div className="font-mono font-bold text-slate-800">{row.total_generation_today_mt?.toFixed(1) || '0.0'} MT</div>
                             </div>
                             <div className="bg-emerald-50/70 p-1.5 rounded border border-emerald-100">
-                              <div className="text-[9px] text-emerald-700">Wet Proc</div>
+                              <div className="text-[9px] text-emerald-700">Wet Gen (8)</div>
+                              <div className="font-mono font-bold text-emerald-900">{row.wet_waste_generation_mt?.toFixed(1) || '0.0'} MT</div>
+                            </div>
+                            <div className="bg-blue-50/70 p-1.5 rounded border border-blue-100">
+                              <div className="text-[9px] text-blue-700">Dry Gen (9)</div>
+                              <div className="font-mono font-bold text-blue-900">{row.dry_waste_generation_mt?.toFixed(1) || '0.0'} MT</div>
+                            </div>
+                          </div>
+
+                          {/* Wet Waste Processing Strip (Cols 10, 11, 12) */}
+                          <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]">
+                            <div className="bg-emerald-50/70 p-1.5 rounded border border-emerald-100">
+                              <div className="text-[9px] text-emerald-700">Wet Proc (10)</div>
                               <div className="font-mono font-bold text-emerald-900">{row.wet_waste_processed_mt?.toFixed(1) || '0.0'} MT</div>
                             </div>
                             <div className="bg-teal-50/70 p-1.5 rounded border border-teal-100">
-                              <div className="text-[9px] text-teal-700">Compost</div>
+                              <div className="text-[9px] text-teal-700">Compost (11)</div>
                               <div className="font-mono font-bold text-teal-900">{row.compost_output_mt?.toFixed(1) || '0.0'} MT</div>
                             </div>
+                            <div className="bg-amber-50/70 p-1.5 rounded border border-amber-100">
+                              <div className="text-[9px] text-amber-700">Manure Sold (12)</div>
+                              <div className="font-mono font-bold text-amber-900">{row.manure_sold_free_mt?.toFixed(1) || '0.0'} MT</div>
+                            </div>
                           </div>
 
-                          {/* Dry Waste Strip */}
+                          {/* Dry Waste Processing Strip (Cols 13, 14, 15, 19) */}
+                          <div className="grid grid-cols-4 gap-1 text-center text-[9px]">
+                            <div className="bg-cyan-50/70 p-1 rounded border border-cyan-100">
+                              <div className="text-[8px] text-cyan-700">Worker (13)</div>
+                              <div className="font-mono font-bold text-cyan-900">{row.recyclable_sold_mt?.toFixed(1) || '0.0'}</div>
+                            </div>
+                            <div className="bg-blue-50/70 p-1 rounded border border-blue-100">
+                              <div className="text-[8px] text-blue-700">Recycler (14)</div>
+                              <div className="font-mono font-bold text-blue-900">{row.recyclable_sent_to_recyclers_mt?.toFixed(1) || '0.0'}</div>
+                            </div>
+                            <div className="bg-indigo-50/70 p-1 rounded border border-indigo-100">
+                              <div className="text-[8px] text-indigo-700">Cement (15)</div>
+                              <div className="font-mono font-bold text-indigo-900">{row.dry_waste_cement_mt?.toFixed(1) || '0.0'}</div>
+                            </div>
+                            <div className="bg-violet-50/70 p-1 rounded border border-violet-100">
+                              <div className="text-[8px] text-violet-700 font-semibold">Tot Dry (19)</div>
+                              <div className="font-mono font-bold text-violet-900">{(row.total_dry_waste_processed_mt ?? ((row.recyclable_sold_mt || 0) + (row.recyclable_sent_to_recyclers_mt || 0) + (row.dry_waste_cement_mt || 0)))?.toFixed(1)}</div>
+                            </div>
+                          </div>
+
+                          {/* Sanitary (Cols 16, 17) & Special Waste (Col 18) Strip */}
                           <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]">
-                            <div className="bg-cyan-50/70 p-1.5 rounded border border-cyan-100">
-                              <div className="text-[9px] text-cyan-700">MRF Sorting</div>
-                              <div className="font-mono font-bold text-cyan-900">{row.mrf_actual?.toFixed(1) || '0.0'} MT</div>
+                            <div className="bg-rose-50/70 p-1 rounded border border-rose-100">
+                              <div className="text-[8px] text-rose-700">Incin Cap (16)</div>
+                              <div className="font-mono font-bold text-rose-900">{row.sanitary_waste_incineration_capacity_mt?.toFixed(1) || '0.0'}</div>
                             </div>
-                            <div className="bg-blue-50/70 p-1.5 rounded border border-blue-100">
-                              <div className="text-[9px] text-blue-700">Recyc Sold</div>
-                              <div className="font-mono font-bold text-blue-900">{row.recyclable_sold_mt?.toFixed(1) || '0.0'} MT</div>
+                            <div className="bg-rose-50/70 p-1 rounded border border-rose-100">
+                              <div className="text-[8px] text-rose-700">San Incin (17)</div>
+                              <div className="font-mono font-bold text-rose-900">{row.sanitary_waste_incinerated_today_mt?.toFixed(1) || '0.0'}</div>
                             </div>
-                            <div className="bg-indigo-50/70 p-1.5 rounded border border-indigo-100">
-                              <div className="text-[9px] text-indigo-700">Cement RDF</div>
-                              <div className="font-mono font-bold text-indigo-900">{row.dry_waste_cement_mt?.toFixed(1) || '0.0'} MT</div>
+                            <div className="bg-amber-50/70 p-1 rounded border border-amber-100">
+                              <div className="text-[8px] text-amber-700">Special (18)</div>
+                              <div className="font-mono font-bold text-amber-900">{row.special_waste_processed_mt?.toFixed(1) || '0.0'}</div>
                             </div>
                           </div>
 
-                          {/* Processed vs Dump yard */}
+                          {/* Calculated Totals (Cols 20, 21, 22) */}
                           <div className="flex justify-between text-[11px] pt-2 border-t border-slate-100">
                             <div>
-                              <span className="text-slate-500">Processed: </span>
-                              <strong className="font-mono text-emerald-700">{row.total_processed_mt?.toFixed(1)} MT</strong>
+                              <span className="text-slate-500">Total Proc (20): </span>
+                              <strong className="font-mono text-emerald-700">{(row.total_processed_waste_mt ?? row.total_processed_mt)?.toFixed(1)} MT</strong>
                             </div>
                             <div>
-                              <span className="text-slate-500">Dump Yard: </span>
+                              <span className="text-slate-500">Dump Yard (21): </span>
                               <strong className="font-mono text-rose-600">{row.dump_yard_mt?.toFixed(1)} MT</strong>
                             </div>
                             <div>
-                              <span className="text-slate-500">Rate: </span>
-                              <strong className="font-mono text-indigo-700">{row.processed_waste_pct ?? row.diversion_rate_pct}%</strong>
+                              <span className="text-slate-500">% Proc (22): </span>
+                              <strong className="font-mono text-indigo-700">{row.processed_waste_pct ?? 0}%</strong>
                             </div>
                           </div>
                         </div>
@@ -318,76 +372,144 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
         </div>
       )}
 
-      {/* VIEW 2: Full Master Table (Official Multi-Tier Layout) */}
+      {/* VIEW 2: Full Master Table (Official 23-Column Layout) */}
       {viewMode === 'table' && (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left border-collapse min-w-[1400px]">
-            {/* Multi-tier Table Head */}
+          <table className="w-full text-xs text-left border-collapse min-w-[2200px]">
+            {/* Multi-tier Table Head matching Official Circular */}
             <thead className="bg-slate-800 text-white font-semibold">
-              {/* Level 1 Header */}
+              {/* Level 1 Header: Group Titles */}
               <tr className="border-b border-slate-700 text-center text-[11px]">
-                <th rowSpan={3} className="py-2.5 px-2 border-r border-slate-700 w-12 sticky left-0 bg-slate-800 z-20">S.No</th>
-                <th rowSpan={3} className="py-2.5 px-3 border-r border-slate-700 w-48 text-left sticky left-12 bg-slate-800 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">Name of Corporation / Municipality</th>
-                <th colSpan={3} className="py-1.5 px-2 border-r border-slate-700 bg-slate-900/60 font-bold">
-                  Door to Door Collection
+                <th rowSpan={2} className="py-2.5 px-2 border-r border-slate-700 w-24 bg-slate-800">
+                  <div>Date</div>
+                  <div className="text-[9px] text-slate-400 font-normal">(1)</div>
                 </th>
-                <th rowSpan={3} className="py-2 px-2 border-r border-slate-700 w-28 bg-slate-900/40">
-                  Total waste generation Today (MT)
+                <th rowSpan={2} className="py-2.5 px-2 border-r border-slate-700 w-12 sticky left-0 bg-slate-800 z-20">
+                  <div>Sl.No.</div>
+                  <div className="text-[9px] text-slate-400 font-normal">(2)</div>
                 </th>
-                <th colSpan={2} className="py-1.5 px-2 border-r border-slate-700 bg-emerald-950/60 font-bold text-emerald-200">
-                  WET WASTE
+                <th rowSpan={2} className="py-2.5 px-2 border-r border-slate-700 w-28 bg-slate-800">
+                  <div>Region</div>
+                  <div className="text-[9px] text-slate-400 font-normal">(3)</div>
                 </th>
-                <th colSpan={3} className="py-1.5 px-2 border-r border-slate-700 bg-cyan-950/60 font-bold text-cyan-200">
-                  DRY WASTE
+                <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-700 w-48 text-left sticky left-12 bg-slate-800 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">
+                  <div>Name of the ULB</div>
+                  <div className="text-[9px] text-slate-400 font-normal">(4)</div>
                 </th>
-                <th colSpan={4} className="py-1.5 px-2 bg-indigo-950/60 font-bold text-indigo-200">
-                  STATUS
+                <th rowSpan={2} className="py-2.5 px-2 border-r border-slate-700 w-24 bg-slate-800">
+                  <div>No. of HHs</div>
+                  <div className="text-[9px] text-slate-400 font-normal">(5)</div>
+                </th>
+                <th colSpan={1} className="py-1.5 px-2 border-r border-slate-700 bg-emerald-950/70 font-bold text-emerald-200 uppercase tracking-wide">
+                  Source Segregation
+                </th>
+                <th colSpan={3} className="py-1.5 px-2 border-r border-slate-700 bg-slate-900 font-bold text-slate-200 uppercase tracking-wide">
+                  Waste Generation
+                </th>
+                <th colSpan={3} className="py-1.5 px-2 border-r border-slate-700 bg-teal-950/70 font-bold text-teal-200 uppercase tracking-wide">
+                  Wet Waste
+                </th>
+                <th colSpan={3} className="py-1.5 px-2 border-r border-slate-700 bg-cyan-950/70 font-bold text-cyan-200 uppercase tracking-wide">
+                  Dry Waste
+                </th>
+                <th colSpan={2} className="py-1.5 px-2 border-r border-slate-700 bg-rose-950/70 font-bold text-rose-200 uppercase tracking-wide">
+                  Sanitary Waste
+                </th>
+                <th colSpan={1} className="py-1.5 px-2 border-r border-slate-700 bg-amber-950/70 font-bold text-amber-200 uppercase tracking-wide">
+                  Special Waste
+                </th>
+                <th colSpan={5} className="py-1.5 px-2 bg-indigo-950/70 font-bold text-indigo-200 uppercase tracking-wide">
+                  Calculated (Do Not Enter)
                 </th>
               </tr>
 
-              {/* Level 2 Header */}
+              {/* Level 2 Header: Columns 6-23 */}
               <tr className="bg-slate-700 text-slate-100 text-center border-b border-slate-600 text-[10px]">
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-24">No. of HHs</th>
-                <th colSpan={2} className="py-1 px-2 border-r border-slate-600 bg-slate-800/80">Door to Door Collection Today</th>
-
-                {/* Wet Waste */}
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-32 bg-emerald-900/40">
-                  Wet waste processed MCC / BIO-METHA (MT)
-                </th>
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-28 bg-emerald-900/40">
-                  Output quantity as compost per day (MT)
+                {/* Col 6 */}
+                <th className="py-1.5 px-2 border-r border-slate-600 w-32 bg-emerald-900/40">
+                  <div>No. of HHs segregated waste collected</div>
+                  <div className="text-[9px] text-emerald-300 font-normal">(6)</div>
                 </th>
 
-                {/* Dry Waste */}
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-28 bg-cyan-900/40">
-                  Processing facilities available (MT)
+                {/* Cols 7-9 */}
+                <th className="py-1.5 px-2 border-r border-slate-600 w-28 bg-slate-800/80">
+                  <div>Total waste generation Today (MT)</div>
+                  <div className="text-[9px] text-slate-300 font-normal">(7)</div>
                 </th>
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-32 bg-cyan-900/40">
-                  Recyclable waste sold by sanitary workers (MT)
+                <th className="py-1.5 px-2 border-r border-slate-600 w-24 bg-slate-800/80">
+                  <div>Wet waste generation (MT)</div>
+                  <div className="text-[9px] text-slate-300 font-normal">(8)</div>
                 </th>
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-32 bg-cyan-900/40">
-                  Dry waste disposed (Cement / recycling) (MT)
+                <th className="py-1.5 px-2 border-r border-slate-600 w-24 bg-slate-800/80">
+                  <div>Dry waste generation (MT)</div>
+                  <div className="text-[9px] text-slate-300 font-normal">(9)</div>
                 </th>
 
-                {/* Status */}
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-24 bg-slate-800">
-                  Total processed waste (MT)
+                {/* Cols 10-12 */}
+                <th className="py-1.5 px-2 border-r border-slate-600 w-36 bg-teal-900/40">
+                  <div>Wet waste processed MCC / BIO-METHA (MT) & others</div>
+                  <div className="text-[9px] text-teal-300 font-normal">(10)</div>
                 </th>
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-28 bg-rose-950/50 text-rose-200">
-                  Waste sent to dumping yard (MT)
+                <th className="py-1.5 px-2 border-r border-slate-600 w-28 bg-teal-900/40">
+                  <div>Compost generated today (MT)</div>
+                  <div className="text-[9px] text-teal-300 font-normal">(11)</div>
                 </th>
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-600 w-20 bg-slate-800">
-                  % of processed waste
+                <th className="py-1.5 px-2 border-r border-slate-600 w-32 bg-teal-900/40">
+                  <div>Manure sold / given at free of cost (MT)</div>
+                  <div className="text-[9px] text-teal-300 font-normal">(12)</div>
                 </th>
-                <th rowSpan={2} className="py-1.5 px-2 w-24 bg-slate-800">
-                  Data-quality flag
-                </th>
-              </tr>
 
-              {/* Level 3 Header */}
-              <tr className="bg-slate-600 text-slate-200 text-center border-b border-slate-500 font-normal text-[10px]">
-                <th className="py-1 px-2 border-r border-slate-500 w-28 text-[9px] leading-tight" title="No. of HHs segregated waste collected">No. of HHs segregated waste collected</th>
-                <th className="py-1 px-2 border-r border-slate-500 w-16">% Col.</th>
+                {/* Cols 13-15 */}
+                <th className="py-1.5 px-2 border-r border-slate-600 w-32 bg-cyan-900/40">
+                  <div>Recyclable waste sold by sanitary workers (MT)</div>
+                  <div className="text-[9px] text-cyan-300 font-normal">(13)</div>
+                </th>
+                <th className="py-1.5 px-2 border-r border-slate-600 w-32 bg-cyan-900/40">
+                  <div>Recyclable waste sent to recyclers (MT)</div>
+                  <div className="text-[9px] text-cyan-300 font-normal">(14)</div>
+                </th>
+                <th className="py-1.5 px-2 border-r border-slate-600 w-32 bg-cyan-900/40">
+                  <div>Dry waste disposed to Cement industries (MT)</div>
+                  <div className="text-[9px] text-cyan-300 font-normal">(15)</div>
+                </th>
+
+                {/* Cols 16-17 */}
+                <th className="py-1.5 px-2 border-r border-slate-600 w-32 bg-rose-900/40">
+                  <div>Sanitary waste - incineration capacity (MT/day)</div>
+                  <div className="text-[9px] text-rose-300 font-normal">(16)</div>
+                </th>
+                <th className="py-1.5 px-2 border-r border-slate-600 w-28 bg-rose-900/40">
+                  <div>Sanitary waste incinerated today (MT)</div>
+                  <div className="text-[9px] text-rose-300 font-normal">(17)</div>
+                </th>
+
+                {/* Col 18 */}
+                <th className="py-1.5 px-2 border-r border-slate-600 w-32 bg-amber-900/40">
+                  <div>Special waste processed / disposed today (MT)</div>
+                  <div className="text-[9px] text-amber-300 font-normal">(18)</div>
+                </th>
+
+                {/* Cols 19-23 */}
+                <th className="py-1.5 px-2 border-r border-slate-600 w-28 bg-indigo-900/50">
+                  <div>Total dry waste processed (MT)</div>
+                  <div className="text-[9px] text-indigo-300 font-normal">(19) =13+14+15</div>
+                </th>
+                <th className="py-1.5 px-2 border-r border-slate-600 w-28 bg-indigo-900/50">
+                  <div>Total processed waste (MT)</div>
+                  <div className="text-[9px] text-indigo-300 font-normal">(20) =10+17+18+19</div>
+                </th>
+                <th className="py-1.5 px-2 border-r border-slate-600 w-28 bg-rose-950/50 text-rose-200">
+                  <div>Waste sent to dumping yard (MT)</div>
+                  <div className="text-[9px] text-rose-300 font-normal">(21) =7-20</div>
+                </th>
+                <th className="py-1.5 px-2 border-r border-slate-600 w-24 bg-indigo-900/50">
+                  <div>% of processed waste</div>
+                  <div className="text-[9px] text-indigo-300 font-normal">(22) =20/7</div>
+                </th>
+                <th className="py-1.5 px-2 w-32 bg-indigo-900/50">
+                  <div>Data-quality flag</div>
+                  <div className="text-[9px] text-indigo-300 font-normal">(23)</div>
+                </th>
               </tr>
             </thead>
 
@@ -406,7 +528,7 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
                       onClick={() => toggleCollapse(reg.key)}
                       className="bg-indigo-50/80 hover:bg-indigo-100/80 cursor-pointer border-t-2 border-indigo-200 select-none transition-colors"
                     >
-                      <td colSpan={15} className="py-2 px-3 text-indigo-950 font-bold text-xs">
+                      <td colSpan={23} className="py-2 px-3 text-indigo-950 font-bold text-xs">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
                             {isCollapsed ? <ChevronRight className="w-4 h-4 text-indigo-700" /> : <ChevronDown className="w-4 h-4 text-indigo-700" />}
@@ -423,6 +545,11 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
                     {/* Individual ULB Rows */}
                     {!isCollapsed && items.map((row) => {
                       const isPending = !row.is_submitted;
+                      const totDryProc = (row.total_dry_waste_processed_mt !== undefined && row.total_dry_waste_processed_mt !== null)
+                        ? row.total_dry_waste_processed_mt
+                        : ((row.recyclable_sold_mt || 0) + (row.recyclable_sent_to_recyclers_mt || 0) + (row.dry_waste_cement_mt || 0));
+                      const totProc = row.total_processed_waste_mt ?? row.total_processed_mt ?? 0;
+
                       return (
                         <tr
                           key={row.ulb_id}
@@ -430,9 +557,22 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
                             isPending ? 'bg-amber-50/20 text-slate-500' : 'text-slate-800'
                           }`}
                         >
+                          {/* Col 1: Date */}
+                          <td className="py-2 px-2 text-center border-r border-slate-100 font-mono text-[10px] text-slate-600">
+                            {row.date || date}
+                          </td>
+
+                          {/* Col 2: Sl.No */}
                           <td className="py-2 px-2 text-center border-r border-slate-100 font-mono sticky left-0 bg-white z-10">
                             {row.s_no}
                           </td>
+
+                          {/* Col 3: Region */}
+                          <td className="py-2 px-2 text-center border-r border-slate-100 text-[10px] text-slate-600">
+                            {row.region}
+                          </td>
+
+                          {/* Col 4: Name of ULB */}
                           <td className="py-2 px-3 font-semibold border-r border-slate-100 sticky left-12 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                             <div className="flex items-center justify-between">
                               <span className="truncate">{row.name}</span>
@@ -440,53 +580,77 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
                             </div>
                           </td>
 
-                          {/* D2D Columns */}
+                          {/* Col 5: No. of HHs */}
                           <td className="py-2 px-2 text-right border-r border-slate-100 font-mono bg-slate-50/40">
                             {(row.total_households || 0).toLocaleString()}
                           </td>
-                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono">
-                            {(row.segregated_hh_collected || row.door_to_door_hhs || 0).toLocaleString()}
-                          </td>
-                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono font-semibold text-emerald-700">
-                            {row.segregation_pct ?? row.collection_pct}%
+
+                          {/* Col 6: Source Segregation */}
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-emerald-800 bg-emerald-50/20">
+                            {(row.segregated_hh_collected || 0).toLocaleString()}
                           </td>
 
-                          {/* Generation Today */}
+                          {/* Cols 7-9: Waste Generation */}
                           <td className="py-2 px-2 text-right border-r border-slate-100 font-mono font-bold text-slate-900 bg-slate-50/30">
                             {row.total_generation_today_mt?.toFixed(2) || '0.00'}
                           </td>
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-slate-800">
+                            {row.wet_waste_generation_mt?.toFixed(2) || '0.00'}
+                          </td>
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-slate-800">
+                            {row.dry_waste_generation_mt?.toFixed(2) || '0.00'}
+                          </td>
 
-                          {/* Wet Waste */}
-                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono font-bold text-emerald-800 bg-emerald-50/20">
-                            {row.wet_waste_processed_mt?.toFixed(2) || (row.mcc_actual + row.biometh_actual).toFixed(2)}
+                          {/* Cols 10-12: Wet Waste */}
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono font-bold text-teal-800 bg-teal-50/20">
+                            {row.wet_waste_processed_mt?.toFixed(2) || '0.00'}
                           </td>
                           <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-teal-800">
                             {row.compost_output_mt?.toFixed(2) || '0.00'}
                           </td>
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-teal-800">
+                            {row.manure_sold_free_mt?.toFixed(2) || '0.00'}
+                          </td>
 
-                          {/* Dry Waste */}
-                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono bg-slate-50/40">
-                            {row.dry_facilities_capacity_mt?.toFixed(2) || (row.mrf_capacity + row.other_capacity).toFixed(2)}
+                          {/* Cols 13-15: Dry Waste */}
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-cyan-800">
+                            {row.recyclable_sold_mt?.toFixed(2) || '0.00'}
                           </td>
                           <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-blue-800">
-                            {row.recyclable_sold_mt?.toFixed(2) || '0.00'}
+                            {row.recyclable_sent_to_recyclers_mt?.toFixed(2) || '0.00'}
                           </td>
                           <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-indigo-800">
                             {row.dry_waste_cement_mt?.toFixed(2) || '0.00'}
                           </td>
 
-                          {/* Status */}
+                          {/* Cols 16-17: Sanitary Waste */}
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-rose-800">
+                            {row.sanitary_waste_incineration_capacity_mt?.toFixed(2) || '0.00'}
+                          </td>
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-rose-800">
+                            {row.sanitary_waste_incinerated_today_mt?.toFixed(2) || '0.00'}
+                          </td>
+
+                          {/* Col 18: Special Waste */}
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono text-amber-800">
+                            {row.special_waste_processed_mt?.toFixed(2) || '0.00'}
+                          </td>
+
+                          {/* Cols 19-23: Calculated Columns */}
+                          <td className="py-2 px-2 text-right border-r border-slate-100 font-mono font-semibold text-violet-900 bg-violet-50/20">
+                            {totDryProc.toFixed(2)}
+                          </td>
                           <td className="py-2 px-2 text-right border-r border-slate-100 font-mono font-bold text-slate-900 bg-slate-50/50">
-                            {row.total_processed_mt?.toFixed(2)}
+                            {totProc.toFixed(2)}
                           </td>
                           <td className="py-2 px-2 text-right border-r border-slate-100 font-mono font-bold text-rose-600 bg-rose-50/20">
-                            {row.dump_yard_mt?.toFixed(2)}
+                            {row.dump_yard_mt?.toFixed(2) || '0.00'}
                           </td>
                           <td className="py-2 px-2 text-right border-r border-slate-100 font-mono font-bold text-emerald-700">
-                            {row.processed_waste_pct ?? row.diversion_rate_pct}%
+                            {row.processed_waste_pct ?? 0}%
                           </td>
                           <td className="py-2 px-2 text-center">
-                            {getFlagBadge(row.data_quality_flag, row.segregated_hh_collected || row.door_to_door_hhs, row.total_households)}
+                            {getFlagBadge(row.data_quality_flag, row.segregated_hh_collected, row.total_households, totProc, row.total_generation_today_mt)}
                           </td>
                         </tr>
                       );
@@ -494,24 +658,38 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
 
                     {/* Regional Subtotal Row */}
                     <tr className="bg-amber-100/60 font-bold border-t border-b border-amber-300 text-amber-950 text-[10px]">
+                      <td className="py-1.5 px-2 text-center text-slate-500">-</td>
                       <td className="py-1.5 px-2 text-center sticky left-0 bg-amber-100/90 z-10">-</td>
+                      <td className="py-1.5 px-2 text-center uppercase">{reg.label.replace(/\(.*\)/, '').trim()}</td>
                       <td className="py-1.5 px-3 uppercase sticky left-12 bg-amber-100/90 z-10">
-                        {reg.label.replace(/\(.*\)/, '').trim()} Total
+                        {reg.label.replace(/\(.*\)/, '').trim()} Total ({items.length} ULBs)
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono">{subtotal.totHH.toLocaleString()}</td>
-                      <td className="py-1.5 px-2 text-right font-mono">{subtotal.segHH.toLocaleString()}</td>
-                      <td className="py-1.5 px-2 text-right font-mono text-emerald-900">{subtotal.avgSegPct}%</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-emerald-900">{subtotal.segHH.toLocaleString()}</td>
                       <td className="py-1.5 px-2 text-right font-mono">{subtotal.genMT.toFixed(2)}</td>
-                      <td className="py-1.5 px-2 text-right font-mono text-emerald-900">{subtotal.wetProc.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{subtotal.wetGenMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{subtotal.dryGenMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-teal-900">{subtotal.wetProc.toFixed(2)}</td>
                       <td className="py-1.5 px-2 text-right font-mono text-teal-900">{subtotal.compostMT.toFixed(2)}</td>
-                      <td className="py-1.5 px-2 text-right font-mono">{subtotal.dryCap.toFixed(2)}</td>
-                      <td className="py-1.5 px-2 text-right font-mono text-blue-900">{subtotal.recycMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-teal-900">{subtotal.manureMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-cyan-900">{subtotal.recycSoldMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-blue-900">{subtotal.recycSentMT.toFixed(2)}</td>
                       <td className="py-1.5 px-2 text-right font-mono text-indigo-900">{subtotal.cementMT.toFixed(2)}</td>
-                      <td className="py-1.5 px-2 text-right font-mono">{subtotal.procMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-rose-900">{subtotal.sanCapMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-rose-900">{subtotal.sanIncinMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-amber-900">{subtotal.specProcMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-violet-900">{subtotal.totDryProcMT.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{subtotal.totProcMT.toFixed(2)}</td>
                       <td className="py-1.5 px-2 text-right font-mono text-rose-900">{subtotal.dumpMT.toFixed(2)}</td>
                       <td className="py-1.5 px-2 text-right font-mono text-emerald-900">{subtotal.avgProcPct}%</td>
                       <td className="py-1.5 px-2 text-center">
-                        {getFlagBadge(subtotal.segHH > subtotal.totHH ? "Segregated HH>Total HH" : "OK", subtotal.segHH, subtotal.totHH)}
+                        {getFlagBadge(
+                          subtotal.segHH > subtotal.totHH ? "Segregated HH>Total HH" : subtotal.totProcMT > subtotal.genMT ? "Processed>Generation" : "OK",
+                          subtotal.segHH,
+                          subtotal.totHH,
+                          subtotal.totProcMT,
+                          subtotal.genMT
+                        )}
                       </td>
                     </tr>
                   </React.Fragment>
@@ -520,24 +698,38 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
 
               {/* State Grand Total Row */}
               <tr className="bg-emerald-100 font-extrabold border-t-2 border-b-2 border-emerald-500 text-emerald-950 text-xs">
+                <td className="py-2.5 px-2 text-center font-mono text-[10px]">{date || "-"}</td>
                 <td className="py-2.5 px-2 text-center sticky left-0 bg-emerald-100 z-10">★</td>
+                <td className="py-2.5 px-2 text-center uppercase">STATEWIDE</td>
                 <td className="py-2.5 px-3 uppercase sticky left-12 bg-emerald-100 z-10">
                   STATE GRAND TOTAL (169 ULBs)
                 </td>
                 <td className="py-2.5 px-2 text-right font-mono">{grandTotal.totHH.toLocaleString()}</td>
-                <td className="py-2.5 px-2 text-right font-mono">{grandTotal.segHH.toLocaleString()}</td>
-                <td className="py-2.5 px-2 text-right font-mono text-emerald-900">{grandTotal.avgSegPct}%</td>
+                <td className="py-2.5 px-2 text-right font-mono text-emerald-900">{grandTotal.segHH.toLocaleString()}</td>
                 <td className="py-2.5 px-2 text-right font-mono">{grandTotal.genMT.toFixed(2)}</td>
-                <td className="py-2.5 px-2 text-right font-mono text-emerald-900">{grandTotal.wetProc.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono">{grandTotal.wetGenMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono">{grandTotal.dryGenMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-teal-900">{grandTotal.wetProc.toFixed(2)}</td>
                 <td className="py-2.5 px-2 text-right font-mono text-teal-900">{grandTotal.compostMT.toFixed(2)}</td>
-                <td className="py-2.5 px-2 text-right font-mono">{grandTotal.dryCap.toFixed(2)}</td>
-                <td className="py-2.5 px-2 text-right font-mono text-blue-900">{grandTotal.recycMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-teal-900">{grandTotal.manureMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-cyan-900">{grandTotal.recycSoldMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-blue-900">{grandTotal.recycSentMT.toFixed(2)}</td>
                 <td className="py-2.5 px-2 text-right font-mono text-indigo-900">{grandTotal.cementMT.toFixed(2)}</td>
-                <td className="py-2.5 px-2 text-right font-mono">{grandTotal.procMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-rose-900">{grandTotal.sanCapMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-rose-900">{grandTotal.sanIncinMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-amber-900">{grandTotal.specProcMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-violet-900">{grandTotal.totDryProcMT.toFixed(2)}</td>
+                <td className="py-2.5 px-2 text-right font-mono">{grandTotal.totProcMT.toFixed(2)}</td>
                 <td className="py-2.5 px-2 text-right font-mono text-rose-900">{grandTotal.dumpMT.toFixed(2)}</td>
                 <td className="py-2.5 px-2 text-right font-mono text-emerald-900">{grandTotal.avgProcPct}%</td>
                 <td className="py-2.5 px-2 text-center">
-                  {getFlagBadge(grandTotal.segHH > grandTotal.totHH ? "Segregated HH>Total HH" : "OK", grandTotal.segHH, grandTotal.totHH)}
+                  {getFlagBadge(
+                    grandTotal.segHH > grandTotal.totHH ? "Segregated HH>Total HH" : grandTotal.totProcMT > grandTotal.genMT ? "Processed>Generation" : "OK",
+                    grandTotal.segHH,
+                    grandTotal.totHH,
+                    grandTotal.totProcMT,
+                    grandTotal.genMT
+                  )}
                 </td>
               </tr>
             </tbody>

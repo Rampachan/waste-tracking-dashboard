@@ -97,33 +97,45 @@ class DailyLogCreate(BaseModel):
     log_date: date
     total_households: int = Field(gt=0, le=10000000, description="Total target households")
     door_to_door_hhs: int = Field(default=0, ge=0, le=10000000, description="Households covered today")
-    segregated_hh_collected: int = Field(default=0, ge=0, le=10000000, description="No. of HHs segregated waste collected")
+    segregated_hh_collected: int = Field(default=0, ge=0, le=10000000, description="Col 6: No. of HHs segregated waste collected")
     
-    # Daily Generation
-    total_generation_today_mt: float = Field(default=0.0, ge=0.0, le=50000.0, description="Total waste generation Today in MT")
+    # WASTE GENERATION (Cols 7, 8, 9)
+    total_generation_today_mt: float = Field(default=0.0, ge=0.0, le=50000.0, description="Col 7: Total waste generation Today (MT)")
+    wet_waste_generation_mt: float = Field(default=0.0, ge=0.0, le=50000.0, description="Col 8: Wet waste generation (MT)")
+    dry_waste_generation_mt: float = Field(default=0.0, ge=0.0, le=50000.0, description="Col 9: Dry waste generation (MT)")
 
-    # Processing facilities in MT
+    # WET WASTE (Cols 10, 11, 12)
+    wet_waste_processed_mt: float = Field(default=0.0, ge=0.0, le=50000.0, description="Col 10: Wet waste processed MCC / BIO-METHA (MT) & others")
+    compost_output_mt: float = Field(default=0.0, ge=0.0, le=20000.0, description="Col 11: Compost generated today (MT)")
+    manure_sold_free_mt: float = Field(default=0.0, ge=0.0, le=20000.0, description="Col 12: Manure sold / given at free of cost (MT)")
+
+    # Processing facilities in MT (itemized / baseline support)
     mcc_capacity: float = Field(default=0.0, ge=0.0, le=20000.0)
     mcc_actual: float = Field(default=0.0, ge=0.0, le=20000.0)
-    mrf_capacity: float = Field(default=0.0, ge=0.0, le=20000.0)
-    mrf_actual: float = Field(default=0.0, ge=0.0, le=20000.0)
     biometh_capacity: float = Field(default=0.0, ge=0.0, le=20000.0)
     biometh_actual: float = Field(default=0.0, ge=0.0, le=20000.0)
     other_capacity: float = Field(default=0.0, ge=0.0, le=20000.0)
     other_actual: float = Field(default=0.0, ge=0.0, le=20000.0)
 
+    # DRY WASTE (Cols 13, 14, 15)
+    mrf_capacity: float = Field(default=0.0, ge=0.0, le=20000.0)
+    mrf_actual: float = Field(default=0.0, ge=0.0, le=20000.0)
+    recyclable_sold_mt: float = Field(default=0.0, ge=0.0, le=20000.0, description="Col 13: Recyclable waste sold by sanitary workers (MT)")
+    recyclable_sent_to_recyclers_mt: float = Field(default=0.0, ge=0.0, le=20000.0, description="Col 14: Recyclable waste sent to recyclers (MT)")
+    dry_waste_cement_mt: float = Field(default=0.0, ge=0.0, le=20000.0, description="Col 15: Dry waste disposed to Cement industries (MT)")
+
+    # SANITARY WASTE (Cols 16, 17)
+    sanitary_waste_incineration_capacity_mt: float = Field(default=0.0, ge=0.0, le=5000.0, description="Col 16: Sanitary waste - incineration capacity (MT/day)")
+    sanitary_waste_incinerated_today_mt: float = Field(default=0.0, ge=0.0, le=5000.0, description="Col 17: Sanitary waste incinerated today (MT)")
+
+    # SPECIAL WASTE (Col 18)
+    special_waste_processed_mt: float = Field(default=0.0, ge=0.0, le=5000.0, description="Col 18: Special waste processed / disposed today (MT)")
+
     # Specific Itemized Facility Logs (Optional - computed automatically if present)
     facility_logs: Optional[List[FacilityLogInput]] = []
-
-    # Wet Waste Products
-    compost_output_mt: float = Field(default=0.0, ge=0.0, le=20000.0, description="Output quantity as compost per day (MT)")
-
-    # Dry Waste Recovery & Disposal
-    recyclable_sold_mt: float = Field(default=0.0, ge=0.0, le=20000.0, description="Recyclable waste sold by sanitary workers (MT)")
-    dry_waste_cement_mt: float = Field(default=0.0, ge=0.0, le=20000.0, description="Dry waste disposed (Cement industries / recycling units) (MT)")
     
-    # Disposal
-    dump_yard_mt: float = Field(default=0.0, ge=0.0, le=50000.0)
+    # Disposal (Optional manual override; auto-calculated as 7-20 if omitted)
+    dump_yard_mt: Optional[float] = Field(default=None, ge=0.0, le=50000.0)
 
 class DailyLogResponse(BaseModel):
     id: int
@@ -138,37 +150,53 @@ class DailyLogResponse(BaseModel):
     collection_pct: float
     segregation_pct: float = 0.0
 
+    # WASTE GENERATION (Cols 7, 8, 9)
     total_generation_today_mt: float = 0.0
+    wet_waste_generation_mt: float = 0.0
+    dry_waste_generation_mt: float = 0.0
 
-    # Wet Waste
-    mcc_capacity: float
-    mcc_actual: float
-    biometh_capacity: float
-    biometh_actual: float
+    # WET WASTE (Cols 10, 11, 12)
+    mcc_capacity: float = 0.0
+    mcc_actual: float = 0.0
+    biometh_capacity: float = 0.0
+    biometh_actual: float = 0.0
     wet_waste_processed_mt: float = 0.0
     compost_output_mt: float = 0.0
+    manure_sold_free_mt: float = 0.0
 
-    # Dry Waste
-    mrf_capacity: float
-    mrf_actual: float
-    other_capacity: float
-    other_actual: float
+    # DRY WASTE (Cols 13, 14, 15)
+    mrf_capacity: float = 0.0
+    mrf_actual: float = 0.0
+    other_capacity: float = 0.0
+    other_actual: float = 0.0
     dry_facilities_capacity_mt: float = 0.0
     recyclable_sold_mt: float = 0.0
+    recyclable_sent_to_recyclers_mt: float = 0.0
     dry_waste_cement_mt: float = 0.0
+
+    # SANITARY WASTE (Cols 16, 17)
+    sanitary_waste_incineration_capacity_mt: float = 0.0
+    sanitary_waste_incinerated_today_mt: float = 0.0
+
+    # SPECIAL WASTE (Col 18)
+    special_waste_processed_mt: float = 0.0
 
     # Specific Facility Breakdown
     facility_logs: List[FacilityLogResponse] = []
 
-    # Status
-    dump_yard_mt: float
+    # CALCULATED - DO NOT ENTER (Cols 19, 20, 21, 22, 23)
+    total_dry_waste_processed_mt: float = 0.0 # Col 19: =13+14+15
+    total_processed_waste_mt: float = 0.0     # Col 20: =10+17+18+19
+    dump_yard_mt: float = 0.0                 # Col 21: =7-20
+    processed_waste_pct: float = 0.0          # Col 22: =20/7
+    data_quality_flag: str = "OK"             # Col 23: Data-quality flag
+    data_quality_note: Optional[str] = None
+
+    # Backward compatibility fields
     total_processed_mt: float = 0.0
     total_capacity_mt: float = 0.0
     total_waste_handled_mt: float = 0.0
     diversion_rate_pct: float = 0.0
-    processed_waste_pct: float = 0.0
-    data_quality_flag: str = "VALID"
-    data_quality_note: Optional[str] = None
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -198,29 +226,43 @@ class DashboardKPIs(BaseModel):
     total_segregated_hhs: int = 0
     avg_segregation_pct: float = 0.0
     
+    # Waste Generation Totals
     total_generation_today_mt: float = 0.0
+    wet_waste_generation_total: float = 0.0
+    dry_waste_generation_total: float = 0.0
 
-    # Facility sums in MT
-    mcc_capacity_total: float
-    mcc_actual_total: float
-    mrf_capacity_total: float
-    mrf_actual_total: float
-    biometh_capacity_total: float
-    biometh_actual_total: float
-    other_capacity_total: float
-    other_actual_total: float
-
-    # Additional Streams
+    # Wet Waste Totals
+    mcc_capacity_total: float = 0.0
+    mcc_actual_total: float = 0.0
+    biometh_capacity_total: float = 0.0
+    biometh_actual_total: float = 0.0
+    other_capacity_total: float = 0.0
+    other_actual_total: float = 0.0
+    wet_waste_processed_total: float = 0.0
     compost_output_mt_total: float = 0.0
-    recyclable_sold_mt_total: float = 0.0
-    dry_waste_cement_mt_total: float = 0.0
+    manure_sold_free_total: float = 0.0
 
-    total_processing_capacity_mt: float
-    total_processed_mt: float
-    dump_yard_mt_total: float
-    total_waste_handled_mt: float
-    landfill_diversion_rate_pct: float
-    capacity_utilization_pct: float
+    # Dry Waste Totals
+    mrf_capacity_total: float = 0.0
+    mrf_actual_total: float = 0.0
+    recyclable_sold_mt_total: float = 0.0
+    recyclable_sent_to_recyclers_total: float = 0.0
+    dry_waste_cement_mt_total: float = 0.0
+    total_dry_waste_processed_total: float = 0.0
+
+    # Sanitary & Special Waste Totals
+    sanitary_waste_incinerated_total: float = 0.0
+    special_waste_processed_total: float = 0.0
+
+    # Calculated & Aggregate Totals
+    total_processing_capacity_mt: float = 0.0
+    total_processed_mt: float = 0.0
+    total_processed_waste_total: float = 0.0
+    dump_yard_mt_total: float = 0.0
+    total_waste_handled_mt: float = 0.0
+    landfill_diversion_rate_pct: float = 0.0
+    capacity_utilization_pct: float = 0.0
+    avg_processed_waste_pct: float = 0.0
 
 # ----------------- UWM SCHEMAS -----------------
 

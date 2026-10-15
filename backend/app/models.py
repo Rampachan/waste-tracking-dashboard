@@ -48,42 +48,46 @@ class DailyWasteLog(Base):
 
     # Door to Door Collection & Segregation
     total_households = Column(Integer, nullable=False)
-    door_to_door_hhs = Column(Integer, nullable=False)
-    segregated_hh_collected = Column(Integer, default=0)
-    collection_pct = Column(Float, nullable=False) # (door_to_door_hhs / total_households) * 100
+    door_to_door_hhs = Column(Integer, nullable=False, default=0)
+    segregated_hh_collected = Column(Integer, default=0) # Col 6: No. of HHs segregated waste collected
+    collection_pct = Column(Float, nullable=False, default=0.0)
 
-    # Daily Generation
-    total_generation_today_mt = Column(Float, default=0.0)
+    # Waste Generation (Cols 7, 8, 9)
+    total_generation_today_mt = Column(Float, default=0.0) # Col 7: Total waste generation Today (MT)
+    wet_waste_generation_mt = Column(Float, default=0.0)   # Col 8: Wet waste generation (MT)
+    dry_waste_generation_mt = Column(Float, default=0.0)   # Col 9: Dry waste generation (MT)
 
-    # Daily incoming waste to Processing facilities (Quantity in MT)
-    # 1. MCCs / Windrow (Wet Waste)
+    # Wet Waste (Cols 10, 11, 12)
     mcc_capacity = Column(Float, default=0.0)
     mcc_actual = Column(Float, default=0.0)
-
-    # 2. MRFs (Dry Waste)
-    mrf_capacity = Column(Float, default=0.0)
-    mrf_actual = Column(Float, default=0.0)
-
-    # 3. BioMethanation plant (Wet Waste)
     biometh_capacity = Column(Float, default=0.0)
     biometh_actual = Column(Float, default=0.0)
-
-    # 4. Other facility
     other_capacity = Column(Float, default=0.0)
     other_actual = Column(Float, default=0.0)
+    wet_waste_processed_mt = Column(Float, default=0.0) # Col 10: Wet waste processed MCC / BIO-METHA (MT) & others
+    compost_output_mt = Column(Float, default=0.0)      # Col 11: Compost generated today (MT)
+    manure_sold_free_mt = Column(Float, default=0.0)    # Col 12: Manure sold / given at free of cost (MT)
 
-    # Wet Waste Products
-    compost_output_mt = Column(Float, default=0.0) # Output quantity as compost per day (MT)
+    # Dry Waste (Cols 13, 14, 15)
+    mrf_capacity = Column(Float, default=0.0)
+    mrf_actual = Column(Float, default=0.0)
+    recyclable_sold_mt = Column(Float, default=0.0)              # Col 13: Recyclable waste sold by sanitary workers (MT)
+    recyclable_sent_to_recyclers_mt = Column(Float, default=0.0) # Col 14: Recyclable waste sent to recyclers (MT)
+    dry_waste_cement_mt = Column(Float, default=0.0)             # Col 15: Dry waste disposed to Cement industries (MT)
 
-    # Dry Waste Recovery & Industrial Disposal
-    recyclable_sold_mt = Column(Float, default=0.0) # Recyclable waste sold by sanitary workers (MT)
-    dry_waste_cement_mt = Column(Float, default=0.0) # Dry waste disposed (Cement industries / recycling units) (MT)
+    # Sanitary Waste (Cols 16, 17)
+    sanitary_waste_incineration_capacity_mt = Column(Float, default=0.0) # Col 16: Sanitary waste - incineration capacity (MT/day)
+    sanitary_waste_incinerated_today_mt = Column(Float, default=0.0)     # Col 17: Sanitary waste incinerated today (MT)
 
-    # Unprocessed Waste sending to Dump Yard in MT
-    dump_yard_mt = Column(Float, default=0.0)
+    # Special Waste (Col 18)
+    special_waste_processed_mt = Column(Float, default=0.0) # Col 18: Special waste processed / disposed today (MT)
 
-    # Automated Data Quality Flag (e.g. 'VALID', 'WARNING', 'CRITICAL')
-    data_quality_flag = Column(String(30), default="VALID")
+    # Calculated Fields - Do Not Enter (Cols 19, 20, 21, 22, 23)
+    total_dry_waste_processed_mt = Column(Float, default=0.0) # Col 19: Total dry waste processed (MT) = 13+14+15
+    total_processed_waste_mt = Column(Float, default=0.0)     # Col 20: Total processed waste (MT) = 10+17+18+19
+    dump_yard_mt = Column(Float, default=0.0)                 # Col 21: Waste sent to dumping yard (MT) = 7-20
+    processed_waste_pct = Column(Float, default=0.0)          # Col 22: % of processed waste = 20/7
+    data_quality_flag = Column(String(50), default="OK")      # Col 23: Data-quality flag
 
     submitted_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
