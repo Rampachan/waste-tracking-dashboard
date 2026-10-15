@@ -12,7 +12,8 @@ const REGION_ORDER = [
   { key: "Tirunelveli Region", label: "Tirunelveli Region (22 ULBs)", isCorp: false },
 ];
 
-export default function MasterRegionalTable({ logs, loading, selectedRegion, setSelectedRegion, filterMode }) {
+export default function MasterRegionalTable({ logs, loading, selectedRegion, setSelectedRegion, filterMode, targetDate }) {
+  const displayDate = targetDate || new Date().toISOString().split('T')[0];
   const [searchTerm, setSearchTerm] = useState('');
   const [collapsedSections, setCollapsedSections] = useState({});
   const [viewMode, setViewMode] = useState('table'); // 'table' | 'cards'
@@ -559,7 +560,7 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
                         >
                           {/* Col 1: Date */}
                           <td className="py-2 px-2 text-center border-r border-slate-100 font-mono text-[10px] text-slate-600">
-                            {row.date || date}
+                            {row.log_date || row.date || displayDate}
                           </td>
 
                           {/* Col 2: Sl.No */}
@@ -698,7 +699,7 @@ export default function MasterRegionalTable({ logs, loading, selectedRegion, set
 
               {/* State Grand Total Row */}
               <tr className="bg-emerald-100 font-extrabold border-t-2 border-b-2 border-emerald-500 text-emerald-950 text-xs">
-                <td className="py-2.5 px-2 text-center font-mono text-[10px]">{date || "-"}</td>
+                <td className="py-2.5 px-2 text-center font-mono text-[10px]">{displayDate}</td>
                 <td className="py-2.5 px-2 text-center sticky left-0 bg-emerald-100 z-10">★</td>
                 <td className="py-2.5 px-2 text-center uppercase">STATEWIDE</td>
                 <td className="py-2.5 px-3 uppercase sticky left-12 bg-emerald-100 z-10">

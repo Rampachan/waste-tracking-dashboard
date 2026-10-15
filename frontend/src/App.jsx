@@ -9,6 +9,7 @@ import UwmDirectorDashboard from './components/UwmDirectorDashboard';
 import ExportModal from './components/ExportModal';
 import MasterBaselineModal from './components/MasterBaselineModal';
 import LoginPage from './components/LoginPage';
+import ErrorBoundary from './components/ErrorBoundary';
 import { dashboardService, logService } from './services/api';
 import { ShieldAlert, ArrowLeft, RefreshCw, AlertTriangle, WifiOff, Wifi } from 'lucide-react';
 
@@ -262,13 +263,16 @@ export default function App() {
               <StatCards summary={summary} loading={loading} />
 
               {/* Hierarchical Regional Data Grid (169 ULBs) */}
-              <MasterRegionalTable
-                logs={dailyLogs}
-                loading={loading}
-                selectedRegion={selectedRegion}
-                setSelectedRegion={setSelectedRegion}
-                filterMode={filterMode}
-              />
+              <ErrorBoundary title="Master Regional Table" onReset={fetchDirectorData}>
+                <MasterRegionalTable
+                  logs={dailyLogs}
+                  loading={loading}
+                  selectedRegion={selectedRegion}
+                  setSelectedRegion={setSelectedRegion}
+                  filterMode={filterMode}
+                  targetDate={targetDate}
+                />
+              </ErrorBoundary>
             </div>
           )
         )}
